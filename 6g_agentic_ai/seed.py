@@ -32,6 +32,7 @@ async def seed():
         AgentCredential("subscriber_agent", hashed, "network_function"),
         AgentCredential("security_agent", hashed, "network_function"),
         AgentCredential("ue_agent", hashed, "user_equipment"),
+        AgentCredential("notification_agent", hashed, "infrastructure"),
     ]
     await database.db.auth_keys.insert_many([c.to_dict() for c in creds])
 

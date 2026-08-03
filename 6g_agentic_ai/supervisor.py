@@ -48,7 +48,8 @@ async def handle_task(request: Request, authorization: str = Header(...), x_agen
                 "session",
                 "update",
                 {
-                    "imsi": params.get("imsi", "001010123456789"),
+                    "imsi": params.get("imsi"),
+                    
                     "session_token": auth_result.get("session_token"),
                     "service": "6G_ROBOTICS_SLICE",
                 },
@@ -65,16 +66,16 @@ async def handle_task(request: Request, authorization: str = Header(...), x_agen
         sub_resp = await client.send_by_skill(
             "qos",
             "lookup",
-            {"imsi": params.get("imsi", "001010123456789")},
+            {"imsi": params.get("imsi")},
         )
-        qos_res = sub_resp.get("result", {})
+        qos_res = sub_resp.get("result")
         return {
             "jsonrpc": "2.0",
             "result": {
                 "status": "completed",
-                "service": params.get("service_type", "video_call"),
-                "qos_class": qos_res.get("qos_class", "QCI_1_URLLC"),
-                "service_plan": qos_res.get("service_plan", "6G_ROBOTICS_SLICE"),
+                "service": params.get("service_type"),
+                "qos_class": qos_res.get("qos_class"),
+                "service_plan": qos_res.get("service_plan"),
             },
             "id": body.get("id"),
         }
@@ -88,6 +89,36 @@ async def handle_task(request: Request, authorization: str = Header(...), x_agen
         return {
             "jsonrpc": "2.0",
             "result": ue_resp.get("result", {}),
+            "id": body.get("id"),
+        }
+
+    elif method == "update_agent_card":
+        card = params.get("card")
+        source_agent = params.get("source_agent", "unknown")
+
+        if not card:
+            return {
+                "jsonrpc": "2.0",
+                "error": {"code": -32602, "message": "card is required"},
+                "id": body.get("id"),
+            }
+
+        # login + verify before touching registry
+        token = await client.authenticate()
+        verified = await client.verify_token()
+
+        registry_result = await client.register(card)
+
+        return {
+            "jsonrpc": "2.0",
+            "result": {
+                "status": "updated",
+                "source_agent": source_agent,
+                "agent_id": card.get("name", "").lower().replace(" ", "_"),
+                "auth_verified": verified.get("sub") == client.agent_id,
+                "token_subject": verified.get("sub"),
+                "registry": registry_result,
+            },
             "id": body.get("id"),
         }
 
@@ -115,7 +146,7 @@ app = FastAPI(title="Supervisor Agent", version="1.0.0")
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-    await client.register_with_retry(SUP_CARD.model_dump())
+    await client.register_with_retry(SUP_CARD.model_dump(), direct=True)
 
 
 app.include_router(router)

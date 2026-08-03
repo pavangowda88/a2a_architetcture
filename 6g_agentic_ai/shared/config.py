@@ -29,5 +29,9 @@ class Settings:
     def REGISTRY_URL(self):
         return f"{self.BASE_URI}:9001"
 
+    @property
+    def NOTIFICATION_URL(self):
+        return f"{self.BASE_URI}:8006"
+
 
 settings = Settings()

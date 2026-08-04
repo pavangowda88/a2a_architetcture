@@ -55,3 +55,6 @@ dist/
 # Jupyter
 # =========================
 .ipynb_checkpoints/
+venv/
+__pycache__/
+*.py[cod]

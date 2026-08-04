@@ -233,6 +233,7 @@ class InMemoryDatabase:
         self.agent_registry = InMemoryCollection("agent_registry")
         self.ue_profiles = InMemoryCollection("ue_profiles")
         self.af_profiles = InMemoryCollection("af_profiles")
+        self.agent_messages = InMemoryCollection("agent_messages")
 
 
 async def init_db():

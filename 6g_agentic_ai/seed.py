@@ -22,6 +22,7 @@ async def seed():
     await database.db.agent_registry.delete_many({})
     await database.db.ue_profiles.delete_many({})
     await database.db.af_profiles.delete_many({})
+    await database.db.agent_messages.delete_many({})
 
     print("Seeding auth credentials...")
     hashed = hash_secret(settings.AGENT_SECRET)
@@ -32,6 +33,9 @@ async def seed():
         AgentCredential("subscriber_agent", hashed, "network_function"),
         AgentCredential("security_agent", hashed, "network_function"),
         AgentCredential("ue_agent", hashed, "user_equipment"),
+        AgentCredential("ue_agent_001", hashed, "user_equipment"),
+        AgentCredential("ue_agent_002", hashed, "user_equipment"),
+        AgentCredential("ue_agent_003", hashed, "user_equipment"),
         AgentCredential("notification_agent", hashed, "infrastructure"),
     ]
     await database.db.auth_keys.insert_many([c.to_dict() for c in creds])

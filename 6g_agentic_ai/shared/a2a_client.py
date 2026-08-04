@@ -55,6 +55,19 @@ class A2AClient:
             response.raise_for_status()
             return response.json()
 
+    async def find_agent_by_id(self, agent_id: str) -> dict:
+        """Resolve a specific agent card for peer-to-peer A2A messaging."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{self.registry_url}/registry/agents/{agent_id}")
+            response.raise_for_status()
+            return response.json()
+
+    async def list_agents(self) -> list[dict]:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{self.registry_url}/registry/agents")
+            response.raise_for_status()
+            return response.json().get("agents", [])
+
     async def send(self, target_url: str, method: str, params: Dict[str, Any] = None) -> dict:
         """Send JSON-RPC to a known URL (after auth)."""
         token = await self.authenticate()
@@ -81,6 +94,11 @@ class A2AClient:
         """
         info = await self.find_agent(skill_id)
         return await self.send(info["url"], method, params)
+
+    async def send_to_agent(self, agent_id: str, endpoint: str, method: str, params: Dict[str, Any] = None) -> dict:
+        """Send directly to a discovered agent endpoint while retaining A2A auth."""
+        card = await self.find_agent_by_id(agent_id)
+        return await self.send(f"{card['url'].rstrip('/')}/{endpoint.lstrip('/')}", method, params)
 
     async def send_raw(self, target_url: str, body: Dict[str, Any]) -> dict:
         token = await self.authenticate()

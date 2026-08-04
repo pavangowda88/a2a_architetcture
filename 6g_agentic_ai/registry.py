@@ -16,7 +16,9 @@ router = APIRouter(prefix="/registry", tags=["Agent Registry"])
 async def register_agent(request: Request):
     require_auth(request)
     body = await request.json()
-    agent_id = body.get("name", "").lower().replace(" ", "_")
+    # Prefer the explicit id so several instances of the same agent type can
+    # register independently (for example ue_agent_001, ue_agent_002).
+    agent_id = body.get("id") or body.get("name", "").lower().replace(" ", "_")
 
     existing = await database.db.agent_registry.find_one({"agent_id": agent_id})
     if existing:

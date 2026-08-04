@@ -135,6 +135,9 @@ class AFAgentProfile(BaseModel):
 
 
 class AgentCard(BaseModel):
+    # Stable machine identifier used by the registry for direct A2A delivery.
+    # `name` remains the human-readable A2A card name.
+    id: Optional[str] = None
     name: str
     description: str
     version: str = "1.0.0"
@@ -149,6 +152,7 @@ class AgentCard(BaseModel):
     )
     provider: AgentProvider = Field(default_factory=AgentProvider)
     profile: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TaskRequest(BaseModel):

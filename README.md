@@ -45,42 +45,49 @@ python seed.py
 
 ## 2. Start the complete system
 
-Open a separate PowerShell terminal for each command, from this folder.
+You need **11 separate PowerShell terminals**, all with the working directory set to this folder. The services must start in a specific order because they register themselves with the Registry and depend on upstream services being available.
 
+**Terminal 1 — Auth Service (port 9000)** — Start this FIRST:
 ```powershell
 uvicorn auth_service:app --host 0.0.0.0 --port 9000
 ```
 
+**Terminal 2 — Registry Service (port 9001)** — Start SECOND:
 ```powershell
 uvicorn registry:app --host 0.0.0.0 --port 9001
 ```
 
+**Terminal 3 — Notification Agent (port 8006)** — Start THIRD:
 ```powershell
 uvicorn notification_agent:app --host 0.0.0.0 --port 8006
 ```
 
+**Terminal 4 — Supervisor Agent (port 8000)** — The central orchestrator:
 ```powershell
 uvicorn supervisor:app --host 0.0.0.0 --port 8000
 ```
 
+**Terminal 5 — AUSF Agent (port 8001)** — Handles authentication:
 ```powershell
 uvicorn ausf:app --host 0.0.0.0 --port 8001
 ```
 
+**Terminal 6 — Subscriber Agent (port 8002)** — QoS and sessions:
 ```powershell
 uvicorn subscriber:app --host 0.0.0.0 --port 8002
 ```
 
+**Terminal 7 — UDM Agent (port 8003)** — Subscriber data and auth vectors:
 ```powershell
 uvicorn udm:app --host 0.0.0.0 --port 8003
 ```
 
+**Terminal 8 — Security Agent (port 8005)** — Trust scoring:
 ```powershell
 uvicorn security:app --host 0.0.0.0 --port 8005
 ```
 
-Start UE Agent 001:
-
+**Terminal 9 — UE Agent 001 (port 8004):**
 ```powershell
 $env:UE_AGENT_ID='ue_agent_001'
 $env:UE_AGENT_NAME='UE Agent 001'
@@ -90,8 +97,7 @@ $env:UE_IMEI='imei-123456789'
 uvicorn ue:app --host 0.0.0.0 --port 8004
 ```
 
-Start UE Agent 002:
-
+**Terminal 10 — UE Agent 002 (port 8007):**
 ```powershell
 $env:UE_AGENT_ID='ue_agent_002'
 $env:UE_AGENT_NAME='UE Agent 002'
@@ -101,7 +107,12 @@ $env:UE_IMEI='356938035643809'
 uvicorn ue:app --host 0.0.0.0 --port 8007
 ```
 
-When both UEs start, each prints a successful registry-registration message.
+**Terminal 11 — FastMCP Gateway (port 8010)** — Start this LAST:
+```powershell
+python mcp_server.py
+```
+
+Wait for each terminal to print its registration confirmation message (e.g., `Registered: Supervisor Agent -> ...`). When both UEs start, each prints a successful registry-registration message.
 
 ## 3. Authentication for protected APIs
 
@@ -331,3 +342,200 @@ All endpoints are protected.
 | `/broadcast` | POST | Send an A2A message to all other registered UEs |
 | `/inbox` | GET | Read messages delivered to that UE |
 | `/messages` | POST | Internal authenticated receiver endpoint; do not call manually |
+
+---
+
+## 7. FastMCP Gateway (MCP for LLM Clients)
+
+The project includes a **FastMCP Streamable HTTP gateway** on port **8010** that
+exposes the entire 6G core network to LLM clients through the Model Context
+Protocol (MCP).
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    LLM Client                           │
+│          (Claude Desktop, Cursor, custom)               │
+└───────────────────────┬─────────────────────────────────┘
+                        │  MCP (Streamable HTTP)
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│              FastMCP Gateway  :8010/mcp                 │
+│                                                         │
+│  Tools: attach_ue, request_ue_service, send_ue_message, │
+│         broadcast, inbox, find_agent, find_by_skill,    │
+│         list_sessions, get_subscriber, run_workflow     │
+│  Resources: agent-cards, active-sessions, topology      │
+│  Prompts: diagnose_network_issue                        │
+└───────────────────────┬─────────────────────────────────┘
+                        │  A2A JSON-RPC (authenticated)
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+   Supervisor       Registry       UE Agents
+     :8000            :9001        :8004, :8007
+        │
+   ┌────┼────┬────┐
+   ▼    ▼    ▼    ▼
+ AUSF  UDM  Sec  Sub
+ :8001 :8003 :8005 :8002
+```
+
+**Key design principles:**
+
+- The MCP gateway **never duplicates** business logic — every tool delegates to
+  existing A2A services.
+- UE attachment and service requests go **exclusively through the Supervisor**,
+  which autonomously discovers and orchestrates downstream agents via the Registry.
+- Secrets (JWTs, agent secrets, MongoDB credentials) are **never exposed** in
+  MCP responses.
+
+### Install
+
+```powershell
+pip install -r requirements.txt
+```
+
+### Run the MCP server
+
+Start all existing services first (see Section 2), then:
+
+```powershell
+python mcp_server.py
+```
+
+Or equivalently:
+
+```powershell
+fastmcp run mcp_server.py --transport streamable-http --port 8010
+```
+
+The server listens on `http://localhost:8010/mcp`.
+
+### MCP client configuration (Claude Desktop, Cursor, Groq)
+
+**Claude Desktop:**
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "6g-core-network": {
+      "url": "http://localhost:8010/mcp"
+    }
+  }
+}
+```
+
+**Using with Groq (Cursor, Cline, Roo Code):**
+Because MCP is an open standard, you are not locked into Anthropic models. You can use Groq's high-speed models to operate the network:
+1. Install an AI extension in VS Code like **Roo Code** or **Cline**.
+2. Set the API Provider to **Groq** and enter your API key. Select a fast model like `llama-3.3-70b-versatile`.
+3. In the extension's MCP settings, add the server URL exactly like above: `http://localhost:8010/mcp`.
+4. You can now prompt the Groq model to "Attach the UE" or "List active sessions" and it will call the tools automatically.
+
+### Available MCP tools
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `attach_ue` | `imsi`, `imei`, `simulate_low_trust?` | 6G network attach via Supervisor → AUSF → UDM → Security |
+| `request_ue_service` | `imsi`, `imei`, `service_type` | Request a service under an active session |
+| `send_ue_message` | `sender_id`, `recipient_id`, `topic`, `content` | Direct UE-to-UE A2A message |
+| `broadcast_ue_message` | `sender_id`, `topic`, `content` | Broadcast message to all UE peers |
+| `get_ue_inbox` | `ue_agent_id` | Retrieve a UE's received messages |
+| `find_agent` | `agent_id` | Look up a specific Agent Card |
+| `find_agent_by_skill` | `skill_id` | Discover an agent by advertised skill |
+| `list_active_sessions` | — | List active UE sessions (tokens redacted) |
+| `get_subscriber_profile` | `imsi` | Get subscriber QoS class and service plan |
+| `run_supervisor_workflow` | `goal`, `params?` | Submit a high-level goal (attach, service request, diagnose) |
+
+### Available MCP resources
+
+| URI | Description |
+| --- | --- |
+| `network://agent-cards` | All registered Agent Cards |
+| `network://active-sessions` | Active sessions (tokens redacted) |
+| `network://topology` | Network service topology with ports and skills |
+
+### Available MCP prompts
+
+| Prompt | Parameters | Description |
+| --- | --- | --- |
+| `diagnose_network_issue` | `issue_type`, `imsi?`, `agent_id?` | Step-by-step diagnostic guide for: `attachment`, `authentication`, `qos`, `registry`, `messaging` |
+
+### Example tool calls
+
+**Attach a UE:**
+
+```json
+{
+  "tool": "attach_ue",
+  "arguments": {
+    "imsi": "001010123456789",
+    "imei": "imei-123456789"
+  }
+}
+```
+
+**Request a service:**
+
+```json
+{
+  "tool": "request_ue_service",
+  "arguments": {
+    "imsi": "001010123456789",
+    "imei": "imei-123456789",
+    "service_type": "video_call"
+  }
+}
+```
+
+**Run supervisor workflow:**
+
+```json
+{
+  "tool": "run_supervisor_workflow",
+  "arguments": {
+    "goal": "attach UE",
+    "params": {
+      "imsi": "001010123456789",
+      "imei": "imei-123456789"
+    }
+  }
+}
+```
+
+**Send a peer message:**
+
+```json
+{
+  "tool": "send_ue_message",
+  "arguments": {
+    "sender_id": "ue_agent_001",
+    "recipient_id": "ue_agent_002",
+    "topic": "coordination",
+    "content": {"task": "share sensor state"}
+  }
+}
+```
+
+### Testing
+
+**Inspect the MCP server** (lists all tools, resources, and prompts):
+
+```powershell
+fastmcp inspect mcp_server.py
+```
+
+**Interactive MCP Inspector** (web UI):
+
+```powershell
+fastmcp dev mcp_server.py
+```
+
+**Run unit tests** (no running services needed — all A2A calls are mocked):
+
+```powershell
+cd 6g_agentic_ai
+pytest tests/test_mcp_tools.py -v
+```

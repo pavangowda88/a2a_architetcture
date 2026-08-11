@@ -9,8 +9,8 @@ from passlib.context import CryptContext
 from shared.models import AgentCard, AgentSkill, AgentProvider
 from shared.auth import create_token, verify_token
 from shared.config import settings
-import database
-from database import init_db
+import database  
+from database import init_db  
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

@@ -252,11 +252,8 @@ async def send_ue_message(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as http:
-            resp = await http.post(f"{base_url}/send-message", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return {"success": True, **data.get("result", data)}
+        data = await _client.send_raw(f"{base_url}/send-message", payload)
+        return {"success": True, **data.get("result", data)}
     except httpx.HTTPStatusError as exc:
         return _error(f"Send failed with HTTP {exc.response.status_code}", "ue_agent")
     except Exception as exc:
@@ -292,11 +289,8 @@ async def broadcast_ue_message(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as http:
-            resp = await http.post(f"{base_url}/broadcast", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return {"success": True, **data.get("result", data)}
+        data = await _client.send_raw(f"{base_url}/broadcast", payload)
+        return {"success": True, **data.get("result", data)}
     except httpx.HTTPStatusError as exc:
         return _error(f"Broadcast failed with HTTP {exc.response.status_code}", "ue_agent")
     except Exception as exc:
@@ -319,8 +313,9 @@ async def get_ue_inbox(ue_agent_id: str) -> dict:
         return _error(f"UE agent '{ue_agent_id}' not found in registry", "registry")
 
     try:
+        token = await _client.authenticate()
         async with httpx.AsyncClient(timeout=10.0) as http:
-            resp = await http.get(f"{base_url}/inbox")
+            resp = await http.get(f"{base_url}/inbox", headers=_client._headers(token))
             resp.raise_for_status()
             data = resp.json()
             messages = data.get("result", [])

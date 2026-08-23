@@ -88,8 +88,9 @@ Follow these step-by-step instructions to set up, launch, and operate the comple
    ```env
    MONGO_URI=mongodb://localhost:27017/
    DATABASE_NAME=sixg_agentic
-   JWT_SECRET=Nokia6GSecretKey2026
-   AGENT_SECRET=secret123
+   # Generate independent high-entropy values; each must be at least 32 bytes.
+   JWT_SECRET=<generate-a-32-byte-or-longer-random-value>
+   AGENT_SECRET=<generate-a-32-byte-or-longer-random-value>
    BASE_URI=http://localhost
    ```
 
@@ -101,7 +102,14 @@ Seed MongoDB with initial subscriber profiles, UE credentials, and agent records
 
 ```powershell
 cd 6g_agentic_ai
+# Production-safe: add any missing service identities (including mcp_gateway_agent)
 python seed.py
+
+# After changing AGENT_SECRET: rotate only service credentials; subscriber data is preserved
+python seed.py --rotate-agent-credentials
+
+# New local/demo database only: recreate all sample data
+python seed.py --reset
 ```
 
 *Expected output*: `Database seeded successfully.`

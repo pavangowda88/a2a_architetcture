@@ -58,7 +58,7 @@ def authenticate(request: Request):
 
 
 @router.post("/subscriber-data")
-async def get_subscriber_data(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def get_subscriber_data(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     imsi = body.get("params", {}).get("imsi")
@@ -81,7 +81,7 @@ async def get_subscriber_data(request: Request, authorization: str = Header(...)
 
 
 @router.post("/auth-vectors")
-async def get_auth_vectors(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def get_auth_vectors(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     imsi = body.get("params", {}).get("imsi", "001010123456789")
@@ -111,7 +111,7 @@ async def get_auth_vectors(request: Request, authorization: str = Header(...), x
 
 
 @router.post("/ue-profile")
-async def get_ue_profile(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def get_ue_profile(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     agent_id = body.get("params", {}).get("agent_id", "UE-Agent-001")
@@ -127,7 +127,7 @@ async def get_ue_profile(request: Request, authorization: str = Header(...), x_a
 
 
 @router.post("/af-profile")
-async def get_af_profile(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def get_af_profile(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     af_agent_id = body.get("params", {}).get("af_agent_id", "AF-Agent-1001")
@@ -143,7 +143,7 @@ async def get_af_profile(request: Request, authorization: str = Header(...), x_a
 
 
 @router.post("/reverify-subscriber")
-async def reverify_subscriber(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def reverify_subscriber(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     imsi = body.get("params", {}).get("imsi")

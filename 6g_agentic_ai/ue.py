@@ -56,6 +56,7 @@ def json_params(body: dict) -> dict:
 @router.post("/attach")
 async def attach(request: Request):
     global current_session
+    require_auth(request)
     try:
         body = await request.json()
     except Exception:
@@ -78,6 +79,7 @@ async def attach(request: Request):
 @router.post("/service-request")
 async def request_service(request: Request):
     global current_session
+    require_auth(request)
     try:
         body = await request.json()
     except Exception:
@@ -96,7 +98,7 @@ async def request_service(request: Request):
 
 
 @router.post("/messages")
-async def receive_message(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def receive_message(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     """Authenticated A2A receiver endpoint for a peer UE's JSON-RPC message."""
     require_auth(request)
     body = await request.json()
@@ -116,6 +118,7 @@ async def receive_message(request: Request, authorization: str = Header(...), x_
 @router.post("/send-message")
 async def send_message(request: Request):
     """Discover a peer UE through the registry and send it an A2A message."""
+    require_auth(request)
     body = await request.json()
     params = json_params(body)
     recipient = params.get("recipient")
@@ -132,6 +135,7 @@ async def send_message(request: Request):
 @router.post("/broadcast")
 async def broadcast(request: Request):
     """Send one A2A message to every registered UE except the sending UE."""
+    require_auth(request)
     body = await request.json()
     params = json_params(body)
     cards = await client.list_agents()
@@ -152,7 +156,8 @@ async def broadcast(request: Request):
 
 
 @router.get("/inbox")
-async def inbox():
+async def inbox(request: Request):
+    require_auth(request)
     messages = await database.db.agent_messages.find({"recipient": AGENT_ID}).to_list(length=100)
     for message in messages:
         message.pop("_id", None)
@@ -161,7 +166,8 @@ async def inbox():
 
 @router.get("/profile")
 @router.post("/profile")
-async def get_profile():
+async def get_profile(request: Request):
+    require_auth(request)
     return {"jsonrpc": "2.0", "result": ue_profile.model_dump(by_alias=True), "id": "profile_request"}
 
 

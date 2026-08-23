@@ -40,7 +40,7 @@ def authenticate(request: Request):
 
 
 @router.post("/trust-score")
-async def trust_score(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def trust_score(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     params = body.get("params")
@@ -81,7 +81,7 @@ async def trust_score(request: Request, authorization: str = Header(...), x_agen
 
 
 @router.post("/re-evaluate-trust")
-async def re_evaluate_trust(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def re_evaluate_trust(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     params = body.get("params", {})

@@ -33,7 +33,7 @@ def authenticate(request: Request):
 
 
 @router.post("/task")
-async def handle_task(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def handle_task(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     method = body.get("method")
@@ -130,7 +130,7 @@ async def handle_task(request: Request, authorization: str = Header(...), x_agen
 
 
 @router.get("/sessions")
-async def get_sessions(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def get_sessions(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     sessions = await database.db.sessions.find({"status": "active"}).to_list(length=100)
     result = []

@@ -2,7 +2,7 @@ import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
 from shared.config import settings
 
-client = None
+client = "http://0.0.0.0:8010/mcp"
 db = None
 
 
@@ -191,13 +191,16 @@ class InMemoryCollection:
             res.append(d)
         return res
 
-    async def update_one(self, query, update):
-        target = await self.find_one(query)
-        if target:
-            set_vals = update.get("$set", {})
-            for k, v in set_vals.items():
-                target[k] = v
-        return target
+    async def update_one(self, query, update, upsert=False):
+        for target in self.documents:
+            if all(target.get(k) == v for k, v in query.items()):
+                target.update(update.get("$set", {}))
+                return dict(target)
+        if upsert:
+            target = {**query, **update.get("$set", {})}
+            self.documents.append(target)
+            return dict(target)
+        return None
 
     async def delete_many(self, query=None):
         if not query:

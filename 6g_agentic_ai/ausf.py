@@ -38,7 +38,7 @@ def authenticate(request: Request):
 
 
 @router.post("/authenticate")
-async def authenticate_sub(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def authenticate_sub(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     params = body.get("params", {})
@@ -110,7 +110,7 @@ async def authenticate_sub(request: Request, authorization: str = Header(...), x
 
 
 @router.post("/verify-session")
-async def verify_session(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def verify_session(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     token = body.get("params", {}).get("session_token")

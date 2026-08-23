@@ -40,7 +40,7 @@ def authenticate(request: Request):
 
 
 @router.post("/lookup")
-async def lookup_subscriber(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def lookup_subscriber(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     imsi = body.get("params", {}).get("imsi", "001010123456789")
@@ -65,7 +65,7 @@ async def lookup_subscriber(request: Request, authorization: str = Header(...), 
 
 
 @router.post("/update-session")
-async def update_session(request: Request, authorization: str = Header(...), x_agent_id: str = Header(...)):
+async def update_session(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     authenticate(request)
     body = await request.json()
     params = body.get("params", {})

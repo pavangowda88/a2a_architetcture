@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Patch settings before importing mcp_server so it doesn't need a real .env
 os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017/test")
-os.environ.setdefault("AGENT_SECRET", "test_secret")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-that-is-at-least-32-bytes")
+os.environ.setdefault("AGENT_SECRET", "test-agent-secret-that-is-at-least-32-bytes")
 
 import httpx
 from mcp_server import (

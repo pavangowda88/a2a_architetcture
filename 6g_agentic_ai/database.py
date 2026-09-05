@@ -8,20 +8,6 @@ db = None
 
 # simple model classes (just hold data)
 
-class AgentCredential:
-    def __init__(self, agent_id, hashed_secret, role="agent"):
-        self.agent_id = agent_id
-        self.hashed_secret = hashed_secret
-        self.role = role
-
-    def to_dict(self):
-        return {
-            "agent_id": self.agent_id,
-            "hashed_secret": self.hashed_secret,
-            "role": self.role,
-        }
-
-
 class SubscriberProfile:
     def __init__(self, imsi, name, auth_key, opc, imei=None, msisdn=None,
                  subscription_type="5G_BASIC", qos_class="QCI_9",
@@ -60,9 +46,9 @@ class SubscriberProfile:
 
 
 class ActiveSession:
-    def __init__(self, imsi, session_token, service="general", status="active"):
+    def __init__(self, imsi, session_id=None, service="general", status="active"):
         self.imsi = imsi
-        self.session_token = session_token
+        self.session_id = session_id
         self.service = service
         self.status = status
         self.updated_at = datetime.datetime.utcnow().isoformat()
@@ -70,7 +56,7 @@ class ActiveSession:
     def to_dict(self):
         return {
             "imsi": self.imsi,
-            "session_token": self.session_token,
+            "session_id": self.session_id,
             "service": self.service,
             "status": self.status,
             "updated_at": self.updated_at,
@@ -229,7 +215,6 @@ class InMemoryCollection:
 
 class InMemoryDatabase:
     def __init__(self):
-        self.auth_keys = InMemoryCollection("auth_keys")
         self.subscribers = InMemoryCollection("subscribers")
         self.sessions = InMemoryCollection("sessions")
         self.security_logs = InMemoryCollection("security_logs")

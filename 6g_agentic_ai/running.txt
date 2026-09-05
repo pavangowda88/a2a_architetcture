@@ -1,195 +1,42 @@
-Step-by-Step: Running the Full System
-You need 11 separate PowerShell terminals, all with working directory set to:
+# Running the 6G Agentic AI system
 
-d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-Prerequisites (run once)
-Terminal 0 — Install & Seed:
+Prerequisites:
 
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
+```powershell
 pip install -r requirements.txt
-You already have the seed data in MongoDB, so no need to re-run python seed.py.
+Copy-Item .env.example .env
+```
 
-Start Order (this order matters!)
-The services must start in a specific order because they register themselves with the Registry and depend on upstream services being available.
+Start Keycloak first with a realm named `6g`, the OAuth clients and scopes described in `README.md`, and the credentials configured in `.env`. Start MongoDB, then seed application data:
 
-Terminal 1 — Auth Service (port 9000) — Start this FIRST, everyone needs JWT tokens from it:
+For a fast, repeatable Keycloak setup after starting the Keycloak Docker container, run this PowerShell script. It creates the realm, clients, scopes, audience mapper, and updates `.env` with generated secrets:
 
-powershell
+```powershell
+.\setup-keycloak.ps1
+```
 
+The script defaults to `http://localhost:8080` with the admin credentials from the Docker command (`admin` / `admin`). For different values:
 
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn auth_service:app --host 0.0.0.0 --port 9000
-Terminal 2 — Registry Service (port 9001) — Start SECOND, agents register their cards here:
+```powershell
+.\setup-keycloak.ps1 -KeycloakUrl "http://localhost:8080" -AdminUser "admin" -AdminPassword "your-password"
+```
 
-powershell
+Then continue with:
 
+```powershell
+python seed.py --reset
+```
 
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn registry:app --host 0.0.0.0 --port 9001
-Terminal 3 — Notification Agent (port 8006) — Start THIRD, handles card-change forwarding:
+Start all application services from this directory:
 
-powershell
+```powershell
+python run_all.py
+```
 
+The MCP endpoint is `http://localhost:8010/mcp` and Registry discovery is `http://localhost:9001/registry/agents`. External MCP clients should connect to the MCP endpoint; OAuth credentials remain server-side.
 
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn notification_agent:app --host 0.0.0.0 --port 8006
-Terminal 4 — Supervisor Agent (port 8000) — The central orchestrator:
+Run tests:
 
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn supervisor:app --host 0.0.0.0 --port 8000
-Terminal 5 — AUSF Agent (port 8001) — Handles authentication:
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn ausf:app --host 0.0.0.0 --port 8001
-Terminal 6 — Subscriber Agent (port 8002) — QoS and sessions:
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn subscriber:app --host 0.0.0.0 --port 8002
-Terminal 7 — UDM Agent (port 8003) — Subscriber data and auth vectors:
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn udm:app --host 0.0.0.0 --port 8003
-Terminal 8 — Security Agent (port 8005) — Trust scoring:
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-uvicorn security:app --host 0.0.0.0 --port 8005
-Terminal 9 — UE Agent 001 (port 8004):
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-$env:UE_AGENT_ID='ue_agent_001'
-$env:UE_AGENT_NAME='UE Agent 001'
-$env:UE_PORT='8004'
-$env:UE_IMSI='001010123456789'
-$env:UE_IMEI='imei-123456789'
-uvicorn ue:app --host 0.0.0.0 --port 8004
-Terminal 10 — UE Agent 002 (port 8007):
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-$env:UE_AGENT_ID='ue_agent_002'
-$env:UE_AGENT_NAME='UE Agent 002'
-$env:UE_PORT='8007'
-$env:UE_IMSI='001010000000001'
-$env:UE_IMEI='356938035643809'
-uvicorn ue:app --host 0.0.0.0 --port 8007
-Terminal 11 — FastMCP Gateway (port 8010) — Start this LAST:
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-python mcp_server.py
-Verify Everything Is Running
-Wait for each terminal to print its registration confirmation message (e.g., Registered: Supervisor Agent -> ...). Once all 11 are up, you can verify:
-
-Check the Registry (in a browser or new terminal):
-
-http://localhost:9001/registry/agents
-You should see all agents listed.
-
-Inspect the MCP server (new terminal):
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-fastmcp inspect mcp_server.py
-Open the MCP Inspector UI (new terminal):
-
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-fastmcp dev mcp_server.py
-Connect an LLM Client
-Add this to your MCP client config (Claude Desktop claude_desktop_config.json, Cursor settings, etc.):
-
-json
-
-
-{
-  "mcpServers": {
-    "6g-core-network": {
-      "url": "http://localhost:8010/mcp"
-    }
-  }
-}
-Then ask the LLM things like:
-
-"Attach UE with IMSI 001010123456789"
-"Request a video_call service for IMSI 001010123456789"
-"Send a message from ue_agent_001 to ue_agent_002"
-"Show me all registered agents"
-"Diagnose an attachment failure"
-Run the Unit Tests (no services needed)
-powershell
-
-
-cd d:\Projects\nokia\a2a_architetcture\6g_agentic_ai
-python -m pytest tests/test_mcp_tools.py -v
-How It All Works Together
-Here's what happens end-to-end when an LLM calls attach_ue(imsi="001010123456789", imei="imei-123456789"):
-
-
-
-Step 1: LLM Client sends an MCP tool call over Streamable HTTP to :8010/mcp
-Step 2: mcp_server.py receives it and calls the attach_ue() function
-Step 3: attach_ue() uses the A2AClient to:
-        a) Get a JWT token from Auth Service (:9000) — POST /auth/login
-        b) Find the "orchestrate" skill in the Registry (:9001) — GET /registry/find/orchestrate
-        c) Send a JSON-RPC call to the Supervisor (:8000) — POST /task with method "authenticate_subscriber"
-Step 4: The Supervisor receives the task and autonomously:
-        a) Finds the "auth" skill in Registry → discovers AUSF Agent (:8001)
-        b) Calls AUSF /authenticate with the IMSI
-Step 5: AUSF autonomously:
-        a) Finds "auth-vectors" skill → discovers UDM Agent (:8003)
-        b) Calls UDM /auth-vectors → gets RAND, AUTN, XRES crypto vectors
-        c) Finds "trust" skill → discovers Security Agent (:8005)
-        d) Calls Security /trust-score → gets trust score & risk level
-        e) If trust < 0.7: triggers low-trust recovery
-           → calls UDM /reverify-subscriber for fresh credentials
-           → calls Security /re-evaluate-trust to elevate score
-        f) Creates a session JWT token
-        g) Returns: authenticated=true, session_token, trustScore, riskLevel, vectors
-Step 6: Supervisor receives the AUSF result and:
-        a) Finds "session" skill → discovers Subscriber Agent (:8002)
-        b) Calls Subscriber /update-session to persist the session
-        c) Returns the aggregated result to mcp_server.py
-Step 7: mcp_server.py also calls Subscriber via "qos" skill for QoS data
-Step 8: mcp_server.py assembles a clean response (stripping internal details):
-        {
-          "success": true,
-          "authenticated": true,
-          "trust_score": 91,
-          "risk_level": "LOW",
-          "session_token": "eyJ...",
-          "qos_class": "QCI_1_URLLC",
-          "service_plan": "6G_ROBOTICS_SLICE"
-        }
-Step 9: This JSON is returned to the LLM over MCP Streamable HTTP
-The critical design: the MCP gateway only talks to the Supervisor for orchestrated workflows. The Supervisor discovers AUSF, UDM, Security, and Subscriber through the Registry on its own. The MCP gateway never manually coordinates those downstream agents — that's the Supervisor's job.
-
-For messaging tools (send_ue_message, broadcast_ue_message, get_ue_inbox), the gateway looks up the UE agent's URL from the Registry and calls its REST endpoints directly, since peer messaging is a UE-level concern, not a Supervisor workflow.
+```powershell
+python -m pytest -v
+```

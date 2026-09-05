@@ -20,8 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Patch settings before importing mcp_server so it doesn't need a real .env
 os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017/test")
-os.environ.setdefault("JWT_SECRET", "test-jwt-secret-that-is-at-least-32-bytes")
-os.environ.setdefault("AGENT_SECRET", "test-agent-secret-that-is-at-least-32-bytes")
+os.environ.setdefault("MCP_SERVER_CLIENT_SECRET", "mcp-secret")
 
 import httpx
 from mcp_server import (
@@ -55,7 +54,6 @@ def _auth_success_response():
                 "authenticated": True,
                 "authentication_method": "Agent-AKA",
                 "imsi": "001010123456789",
-                "session_token": "mock_session_token_xyz",
                 "trustScore": 91,
                 "riskLevel": "LOW",
                 "auth_vectors": {
@@ -109,7 +107,7 @@ def _sessions_response_data():
     return {
         "jsonrpc": "2.0",
         "result": [
-            {"imsi": "001010123456789", "session_token": "secret_token", "service": "video_call", "status": "active"},
+            {"imsi": "001010123456789", "session_id": "opaque-session-id", "service": "video_call", "status": "active"},
         ],
         "id": "sessions_query",
     }
@@ -211,7 +209,7 @@ class TestMockedSuccess:
     @pytest.mark.asyncio
     async def test_attach_ue_success(self):
         with patch.object(_client, "send_by_skill", new_callable=AsyncMock) as mock_send, \
-             patch.object(_client, "authenticate", new_callable=AsyncMock, return_value="tok"):
+             patch.object(_client, "get_access_token", new_callable=AsyncMock, return_value="tok"):
             # First call: orchestrate/authenticate_subscriber
             # Second call: qos/lookup
             mock_send.side_effect = [_auth_success_response(), _qos_response()]
@@ -222,14 +220,14 @@ class TestMockedSuccess:
             assert result["authenticated"] is True
             assert result["trust_score"] == 91
             assert result["risk_level"] == "LOW"
-            assert result["session_token"] == "mock_session_token_xyz"
+            assert "session_id" not in result
             assert result["qos_class"] == "QCI_1_URLLC"
             assert result["service_plan"] == "6G_ROBOTICS_SLICE"
 
     @pytest.mark.asyncio
     async def test_request_service_success(self):
         with patch.object(_client, "send_by_skill", new_callable=AsyncMock, return_value=_service_response()), \
-             patch.object(_client, "authenticate", new_callable=AsyncMock, return_value="tok"):
+             patch.object(_client, "get_access_token", new_callable=AsyncMock, return_value="tok"):
             result = await request_ue_service(
                 imsi="001010123456789", imei="imei-123456789", service_type="video_call"
             )
@@ -260,7 +258,7 @@ class TestMockedSuccess:
     @pytest.mark.asyncio
     async def test_get_subscriber_profile_success(self):
         with patch.object(_client, "send_by_skill", new_callable=AsyncMock, return_value=_qos_response()), \
-             patch.object(_client, "authenticate", new_callable=AsyncMock, return_value="tok"):
+             patch.object(_client, "get_access_token", new_callable=AsyncMock, return_value="tok"):
             result = await get_subscriber_profile(imsi="001010123456789")
             assert result["success"] is True
             assert result["qos_class"] == "QCI_1_URLLC"
@@ -278,18 +276,18 @@ class TestMockedSuccess:
         mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
         mock_http_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch.object(_client, "authenticate", new_callable=AsyncMock, return_value="tok"), \
+        with patch.object(_client, "get_access_token", new_callable=AsyncMock, return_value="tok"), \
              patch("mcp_server.httpx.AsyncClient", return_value=mock_http_client):
             result = await list_active_sessions()
             assert result["success"] is True
             # Verify session tokens are redacted
             for session in result.get("sessions", []):
-                assert "session_token" not in session
+                assert "session_id" not in session
 
     @pytest.mark.asyncio
     async def test_run_workflow_attach(self):
         with patch.object(_client, "send_by_skill", new_callable=AsyncMock, return_value=_auth_success_response()), \
-             patch.object(_client, "authenticate", new_callable=AsyncMock, return_value="tok"):
+             patch.object(_client, "get_access_token", new_callable=AsyncMock, return_value="tok"):
             result = await run_supervisor_workflow(
                 goal="attach UE",
                 params={"imsi": "001010123456789", "imei": "imei-123456789"},
@@ -379,7 +377,7 @@ class TestResourcesAndPrompts:
         assert "services" in data
         assert data["transport"] == "Streamable HTTP"
         assert data["mcp_endpoint"] == "http://localhost:8010/mcp"
-        assert len(data["services"]) == 11
+        assert len(data["services"]) == 10
 
     def test_diagnose_attachment(self):
         prompt = diagnose_network_issue(issue_type="attachment", imsi="001010123456789")

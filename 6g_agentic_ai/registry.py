@@ -4,7 +4,7 @@ Registry Service — agents register cards here; others find them by skill.
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request
 from shared.models import AgentCard, AgentSkill
-from shared.auth import require_auth
+from shared.oauth import require_oauth_scope
 from shared.config import settings
 import database
 from database import init_db
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/registry", tags=["Agent Registry"])
 
 @router.post("/register")
 async def register_agent(request: Request):
-    require_auth(request)
+    await require_oauth_scope(request, "agent:write")
     body = await request.json()
     # Prefer the explicit id so several instances of the same agent type can
     # register independently (for example ue_agent_001, ue_agent_002).

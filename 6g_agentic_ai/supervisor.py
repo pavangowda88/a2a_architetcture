@@ -4,14 +4,14 @@ Supervisor Agent — gets a task, finds the right agent by skill from registry, 
 
 from fastapi import FastAPI, APIRouter, Header, Request
 from shared.models import AgentCard, AgentSkill
-from shared.auth import require_auth
+from shared.oauth import require_oauth_scope
 from shared.a2a_client import A2AClient
 from shared.config import settings
 import database
 from database import init_db
 
 router = APIRouter()
-client = A2AClient(agent_id="supervisor_agent", agent_secret=settings.AGENT_SECRET)
+client = A2AClient("supervisor-agent", settings.client_credentials("supervisor-agent")[1])
 
 SUP_CARD = AgentCard(
     name="Supervisor Agent",
@@ -28,13 +28,13 @@ SUP_CARD = AgentCard(
 )
 
 
-def authenticate(request: Request):
-    return require_auth(request)
+async def authenticate(request: Request, scope: str):
+    return await require_oauth_scope(request, scope)
 
 
 @router.post("/task")
 async def handle_task(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "agent:write")
     body = await request.json()
     method = body.get("method")
     params = body.get("params", {})
@@ -49,8 +49,6 @@ async def handle_task(request: Request, authorization: str | None = Header(defau
                 "update",
                 {
                     "imsi": params.get("imsi"),
-                    
-                    "session_token": auth_result.get("session_token"),
                     "service": "6G_ROBOTICS_SLICE",
                 },
             )
@@ -103,10 +101,6 @@ async def handle_task(request: Request, authorization: str | None = Header(defau
                 "id": body.get("id"),
             }
 
-        # login + verify before touching registry
-        token = await client.authenticate()
-        verified = await client.verify_token()
-
         registry_result = await client.register(card)
 
         return {
@@ -115,8 +109,6 @@ async def handle_task(request: Request, authorization: str | None = Header(defau
                 "status": "updated",
                 "source_agent": source_agent,
                 "agent_id": card.get("name", "").lower().replace(" ", "_"),
-                "auth_verified": verified.get("sub") == client.agent_id,
-                "token_subject": verified.get("sub"),
                 "registry": registry_result,
             },
             "id": body.get("id"),
@@ -131,7 +123,7 @@ async def handle_task(request: Request, authorization: str | None = Header(defau
 
 @router.get("/sessions")
 async def get_sessions(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "agent:read")
     sessions = await database.db.sessions.find({"status": "active"}).to_list(length=100)
     result = []
     for s in sessions:

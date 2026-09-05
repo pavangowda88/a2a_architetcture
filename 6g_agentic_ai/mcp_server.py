@@ -13,14 +13,73 @@ Run:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.server.auth import AccessToken, RemoteAuthProvider, TokenVerifier
+from fastapi import HTTPException
+from pydantic import AnyHttpUrl
 
 from shared.a2a_client import A2AClient
 from shared.config import settings
+from shared.oauth import introspect_access_token
+
+logging.basicConfig(
+    filename="mcp_server.log",
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+if not any(isinstance(handler, logging.FileHandler) for handler in logger.handlers):
+    logger.addHandler(logging.FileHandler("mcp_server.log"))
+oauth_logger = logging.getLogger("shared.oauth")
+if not any(isinstance(handler, logging.FileHandler) for handler in oauth_logger.handlers):
+    oauth_logger.addHandler(logging.FileHandler("mcp_server.log"))
+
+
+class KeycloakTokenVerifier(TokenVerifier):
+    """Adapt Keycloak introspection to FastMCP's resource-server interface."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        try:
+            claims = await introspect_access_token(token)
+        except HTTPException as exc:
+            logger.warning(
+                "MCP token verification rejected request: status=%s detail=%s",
+                exc.status_code,
+                exc.detail,
+            )
+            return None
+        scopes = str(claims.get("scope", "")).split()
+        logger.info(
+            "MCP token verification succeeded: client_id=%r scopes=%r required_scopes=%r",
+            claims.get("client_id", claims.get("azp")),
+            scopes,
+            ["mcp:execute"],
+        )
+        return AccessToken(
+            token=token,
+            client_id=str(claims.get("client_id", claims.get("azp", "unknown"))),
+            scopes=scopes,
+            expires_at=int(claims["exp"]) if claims.get("exp") else None,
+            subject=claims.get("sub"),
+            claims=claims,
+        )
+
+
+mcp_auth = RemoteAuthProvider(
+    token_verifier=KeycloakTokenVerifier(
+        base_url=f"{settings.BASE_URI}:8010",
+        resource_base_url=f"{settings.BASE_URI}:8010",
+        required_scopes=["mcp:execute"],
+    ),
+    authorization_servers=[AnyHttpUrl(settings.OAUTH_ISSUER_URL)],
+    base_url=f"{settings.BASE_URI}:8010",
+    resource_base_url=f"{settings.BASE_URI}:8010",
+)
 
 # ---------------------------------------------------------------------------
 # FastMCP instance
@@ -33,20 +92,20 @@ mcp = FastMCP(
         "query the agent registry, and run supervisor workflows. "
         "All operations are orchestrated through the Supervisor agent."
     ),
+    auth=mcp_auth,
 )
 
 # ---------------------------------------------------------------------------
 # Internal A2A client — authenticates as the MCP gateway agent
 # ---------------------------------------------------------------------------
-_client = A2AClient(agent_id="mcp_gateway_agent", agent_secret=settings.AGENT_SECRET)
+_client = A2AClient("mcp-server", settings.client_credentials("mcp-server")[1])
 
 # Port topology for the static topology resource
 _TOPOLOGY = {
     "services": [
-        {"name": "Auth Service",         "port": 9000, "skills": ["login", "verify"],                     "role": "JWT token issuer / verifier"},
         {"name": "Registry Service",     "port": 9001, "skills": ["discovery"],                           "role": "Agent Card directory and skill-based discovery"},
         {"name": "Supervisor Agent",     "port": 8000, "skills": ["orchestrate"],                         "role": "Central orchestrator for attach, service requests, and profile queries"},
-        {"name": "AUSF Agent",           "port": 8001, "skills": ["auth", "verify-session"],              "role": "Agent-AKA authentication with automated low-trust recovery"},
+        {"name": "AUSF Agent",           "port": 8001, "skills": ["auth"],                                 "role": "Agent-AKA authentication with automated low-trust recovery"},
         {"name": "Subscriber Agent",     "port": 8002, "skills": ["qos", "session"],                      "role": "QoS lookup and session management"},
         {"name": "UDM Agent",            "port": 8003, "skills": ["sub-data", "auth-vectors", "ue-profile", "af-profile", "reverify-sub"], "role": "Unified Data Management"},
         {"name": "Security Agent",       "port": 8005, "skills": ["trust", "re-evaluate"],                "role": "Trust scoring and risk assessment"},
@@ -75,7 +134,7 @@ def _sanitize_card(card: dict) -> dict:
 def _sanitize_session(session: dict) -> dict:
     """Redact session tokens from session data returned to the LLM."""
     session.pop("_id", None)
-    session.pop("session_token", None)
+    session.pop("session_id", None)
     return session
 
 
@@ -156,10 +215,6 @@ async def attach_ue(
         "trust_score": inner.get("trustScore"),
         "risk_level": inner.get("riskLevel"),
     }
-
-    # Include session token only when supervisor explicitly provides it
-    if inner.get("session_token"):
-        output["session_token"] = inner["session_token"]
 
     if inner.get("automated_recovery"):
         output["automated_recovery"] = inner["automated_recovery"]
@@ -313,7 +368,7 @@ async def get_ue_inbox(ue_agent_id: str) -> dict:
         return _error(f"UE agent '{ue_agent_id}' not found in registry", "registry")
 
     try:
-        token = await _client.authenticate()
+        token = await _client.get_access_token()
         async with httpx.AsyncClient(timeout=10.0) as http:
             resp = await http.get(f"{base_url}/inbox", headers=_client._headers(token))
             resp.raise_for_status()
@@ -371,13 +426,13 @@ async def find_agent_by_skill(skill_id: str) -> dict:
 @mcp.tool(
     description=(
         "List all active UE sessions from the Supervisor agent. "
-        "Session tokens are redacted for security."
+        "Opaque session identifiers are redacted for security."
     )
 )
 async def list_active_sessions() -> dict:
     """Query the Supervisor for active subscriber sessions."""
     try:
-        token = await _client.authenticate()
+        token = await _client.get_access_token()
         headers = _client._headers(token)
         async with httpx.AsyncClient(timeout=10.0) as http:
             resp = await http.get(
@@ -550,9 +605,9 @@ async def resource_agent_cards() -> str:
     description="Currently active UE sessions (session tokens redacted).",
 )
 async def resource_active_sessions() -> str:
-    """Return active sessions with tokens redacted."""
+    """Return active sessions with identifiers redacted."""
     try:
-        token = await _client.authenticate()
+        token = await _client.get_access_token()
         headers = _client._headers(token)
         async with httpx.AsyncClient(timeout=10.0) as http:
             resp = await http.get(

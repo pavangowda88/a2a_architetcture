@@ -92,6 +92,7 @@ Follow these step-by-step instructions to set up, launch, and operate the comple
    JWT_SECRET=<generate-a-32-byte-or-longer-random-value>
    AGENT_SECRET=<generate-a-32-byte-or-longer-random-value>
    BASE_URI=http://localhost
+   MCP_PUBLIC_URL=http://localhost:8010
    ```
 
 ---

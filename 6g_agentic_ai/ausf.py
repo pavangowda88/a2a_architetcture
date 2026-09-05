@@ -4,13 +4,13 @@ AUSF Agent — finds UDM and Security from their agent cards, authenticates via 
 
 from fastapi import FastAPI, APIRouter, Header, Request
 from shared.models import AgentCard, AgentSkill
-from shared.auth import require_auth, create_token, verify_token
+from shared.oauth import require_oauth_scope
 from shared.a2a_client import A2AClient
 from shared.config import settings
 from database import init_db
 
 router = APIRouter()
-client = A2AClient(agent_id="ausf_agent", agent_secret=settings.AGENT_SECRET)
+client = A2AClient("ausf-agent", settings.client_credentials("ausf-agent")[1])
 
 AUSF_CARD = AgentCard(
     name="AUSF Agent",
@@ -23,23 +23,13 @@ AUSF_CARD = AgentCard(
             description="Agent-AKA 5G/6G Authentication with Automated Low-Trust Recovery",
             endpoint="/authenticate",
         ),
-        AgentSkill(
-            id="verify-session",
-            name="Verify Session",
-            description="Verify active agent session token",
-            endpoint="/verify-session",
-        ),
     ],
 )
 
 
-def authenticate(request: Request):
-    return require_auth(request)
-
-
 @router.post("/authenticate")
 async def authenticate_sub(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await require_oauth_scope(request, "authentication:request")
     body = await request.json()
     params = body.get("params", {})
     imsi = params.get("imsi", "001010123456789")
@@ -87,15 +77,12 @@ async def authenticate_sub(request: Request, authorization: str | None = Header(
             "elevated_risk_level": "LOW",
         }
 
-    session_token = create_token(agent_id=f"session_{imsi}", role="subscriber_session")
-
     return {
         "jsonrpc": "2.0",
         "result": {
             "authenticated": True,
             "authentication_method": "Agent-AKA",
             "imsi": imsi,
-            "session_token": session_token,
             "trustScore": int(trust_score * 100) if trust_score <= 1.0 else int(trust_score),
             "riskLevel": risk_level.upper(),
             "auth_vectors": {
@@ -107,15 +94,6 @@ async def authenticate_sub(request: Request, authorization: str | None = Header(
         },
         "id": body.get("id"),
     }
-
-
-@router.post("/verify-session")
-async def verify_session(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
-    body = await request.json()
-    token = body.get("params", {}).get("session_token")
-    payload = verify_token(token)
-    return {"jsonrpc": "2.0", "result": {"valid": payload is not None}, "id": body.get("id")}
 
 
 app = FastAPI(title="AUSF Agent", version="1.0.0")

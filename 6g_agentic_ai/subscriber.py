@@ -5,14 +5,14 @@ Subscriber Agent — QoS and session management.
 from fastapi import FastAPI, APIRouter, Header, Request
 import datetime
 from shared.models import AgentCard, AgentSkill
-from shared.auth import require_auth
+from shared.oauth import require_oauth_scope
 from shared.a2a_client import A2AClient
 from shared.config import settings
 import database
 from database import init_db
 
 router = APIRouter()
-client = A2AClient(agent_id="subscriber_agent", agent_secret=settings.AGENT_SECRET)
+client = A2AClient("subscriber-agent", settings.client_credentials("subscriber-agent")[1])
 
 SUB_CARD = AgentCard(
     name="Subscriber Agent",
@@ -35,13 +35,13 @@ SUB_CARD = AgentCard(
 )
 
 
-def authenticate(request: Request):
-    return require_auth(request)
+async def authenticate(request: Request, scope: str):
+    return await require_oauth_scope(request, scope)
 
 
 @router.post("/lookup")
 async def lookup_subscriber(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "subscriber:read")
     body = await request.json()
     imsi = body.get("params", {}).get("imsi", "001010123456789")
 
@@ -66,7 +66,7 @@ async def lookup_subscriber(request: Request, authorization: str | None = Header
 
 @router.post("/update-session")
 async def update_session(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "subscriber:write")
     body = await request.json()
     params = body.get("params", {})
     imsi = params.get("imsi", "001010123456789")
@@ -74,7 +74,6 @@ async def update_session(request: Request, authorization: str | None = Header(de
     existing = await database.db.sessions.find_one({"imsi": imsi})
     session_data = {
         "imsi": imsi,
-        "session_token": params.get("session_token", ""),
         "service": params.get("service", "general"),
         "status": "active",
         "updated_at": datetime.datetime.utcnow().isoformat(),

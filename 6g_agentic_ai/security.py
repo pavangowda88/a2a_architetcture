@@ -4,7 +4,7 @@ Security Agent — trust and risk assessment.
 
 from fastapi import FastAPI, APIRouter, Header, Request
 from shared.models import AgentCard, AgentSkill
-from shared.auth import require_auth
+from shared.oauth import require_oauth_scope
 from shared.a2a_client import A2AClient
 from shared.config import settings
 import database
@@ -12,7 +12,7 @@ from database import init_db
 import datetime
 
 router = APIRouter()
-client = A2AClient(agent_id="security_agent", agent_secret=settings.AGENT_SECRET)
+client = A2AClient("security-agent", settings.client_credentials("security-agent")[1])
 
 SEC_CARD = AgentCard(
     name="Security Agent",
@@ -35,13 +35,13 @@ SEC_CARD = AgentCard(
 )
 
 
-def authenticate(request: Request):
-    return require_auth(request)
+async def authenticate(request: Request, scope: str):
+    return await require_oauth_scope(request, scope)
 
 
 @router.post("/trust-score")
 async def trust_score(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "security:read")
     body = await request.json()
     params = body.get("params")
     imsi = params.get("imsi")
@@ -82,7 +82,7 @@ async def trust_score(request: Request, authorization: str | None = Header(defau
 
 @router.post("/re-evaluate-trust")
 async def re_evaluate_trust(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "security:write")
     body = await request.json()
     params = body.get("params", {})
     imsi = params.get("imsi")

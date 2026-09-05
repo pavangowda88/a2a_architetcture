@@ -1,33 +1,30 @@
-"""Authentication regression tests for service-to-service A2A traffic."""
+"""OAuth 2.0 resource-server and client-credentials tests."""
 
 from __future__ import annotations
 
 import os
 import sys
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017/test")
-os.environ.setdefault("JWT_SECRET", "test-jwt-secret-that-is-at-least-32-bytes")
-os.environ.setdefault("AGENT_SECRET", "test-agent-secret-that-is-at-least-32-bytes")
+os.environ.setdefault("OAUTH_ISSUER_URL", "https://issuer.test/realms/6g")
+os.environ.setdefault("OAUTH_AUDIENCE", "6g-agent-services")
+os.environ.setdefault("RESOURCE_CLIENT_ID", "resource-server")
+os.environ.setdefault("RESOURCE_CLIENT_SECRET", "resource-secret")
+os.environ.setdefault("MCP_SERVER_CLIENT_SECRET", "mcp-secret")
 
 import database
-from auth_service import hash_secret
-from shared.a2a_client import A2AClient
-from shared.auth import create_token
+from shared.oauth import OAuthClient
 from subscriber import app as subscriber_app
-from supervisor import app as supervisor_app
 
 
 async def _set_up_db() -> None:
     database.db = database.InMemoryDatabase()
-    await database.db.auth_keys.insert_one({
-        "agent_id": "mcp_gateway_agent",
-        "hashed_secret": hash_secret(os.environ["AGENT_SECRET"]),
-        "role": "gateway",
-    })
     await database.db.subscribers.insert_one({
         "imsi": "001010123456789",
         "name": "Test Subscriber",
@@ -37,65 +34,61 @@ async def _set_up_db() -> None:
 
 
 @pytest.mark.asyncio
-async def test_long_agent_secret_is_hashed_and_verified_without_truncation():
-    secret = "machine-credential-" + ("x" * 256)
-    hashed = hash_secret(secret)
-    from auth_service import verify_secret
-    assert verify_secret(secret, hashed)
-    assert not verify_secret(secret + "different", hashed)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("app,path", [(subscriber_app, "/lookup"), (supervisor_app, "/task")])
-async def test_a2a_endpoint_rejects_missing_or_invalid_credentials(app, path):
-    await _set_up_db()
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
-        missing = await http.post(path, json={"jsonrpc": "2.0", "method": "lookup", "params": {}})
-        invalid = await http.post(
-            path,
-            json={"jsonrpc": "2.0", "method": "lookup", "params": {}},
-            headers={"Authorization": "Bearer invalid", "X-Agent-Id": "mcp_gateway_agent"},
-        )
-    assert missing.status_code == 401
-    assert invalid.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_subscriber_accepts_valid_mcp_service_token():
-    await _set_up_db()
-    token = create_token("mcp_gateway_agent", "gateway")
-    transport = httpx.ASGITransport(app=subscriber_app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
-        response = await http.post(
-            "/lookup",
-            json={"jsonrpc": "2.0", "method": "lookup", "params": {"imsi": "001010123456789"}},
-            headers={"Authorization": f"Bearer {token}", "X-Agent-Id": "mcp_gateway_agent"},
-        )
-    assert response.status_code == 200
-    assert response.json()["result"]["qos_class"] == "QCI_1_URLLC"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("target", ["http://a2a.test/subscriber", "http://a2a.test/supervisor"])
-async def test_mcp_a2a_client_sends_bearer_and_matching_agent_id(monkeypatch, target):
-    """The MCP identity must authenticate before either downstream target."""
-    observed = []
+async def test_oauth_client_credentials_acquires_and_caches_token(monkeypatch):
+    requests = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/auth/login":
-            return httpx.Response(200, json={"access_token": create_token("mcp_gateway_agent", "gateway")})
-        observed.append(request)
-        return httpx.Response(200, json={"jsonrpc": "2.0", "result": {}})
+        requests.append(request)
+        return httpx.Response(200, json={"access_token": "opaque-access-token", "expires_in": 300})
 
     transport = httpx.MockTransport(handler)
-    real_async_client = httpx.AsyncClient
+    real_client = httpx.AsyncClient
     monkeypatch.setattr(
-        "shared.a2a_client.httpx.AsyncClient",
-        lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        "shared.oauth.httpx.AsyncClient",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
     )
-    client = A2AClient("mcp_gateway_agent", os.environ["AGENT_SECRET"])
-    await client.send(target, "lookup", {"imsi": "001010123456789"})
-    assert len(observed) == 1
-    assert observed[0].headers["X-Agent-Id"] == "mcp_gateway_agent"
-    assert observed[0].headers["Authorization"].startswith("Bearer ")
+    client = OAuthClient("mcp-server", "mcp-secret")
+
+    assert await client.get_access_token() == "opaque-access-token"
+    assert await client.get_access_token() == "opaque-access-token"
+    assert len(requests) == 1
+    assert b"grant_type=client_credentials" in requests[0].content
+
+
+@pytest.mark.asyncio
+async def test_protected_endpoint_rejects_missing_token():
+    await _set_up_db()
+    transport = httpx.ASGITransport(app=subscriber_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/lookup", json={"params": {}})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "claims,status_code",
+    [
+        ({"active": False}, 401),
+        ({"active": True, "iss": "https://issuer.test/realms/wrong", "scope": "subscriber:read"}, 401),
+        ({"active": True, "iss": "https://issuer.test/realms/6g", "aud": "6g-agent-services", "scope": "agent:read"}, 403),
+        ({"active": True, "iss": "https://issuer.test/realms/6g", "aud": "6g-agent-services", "scope": "subscriber:read"}, 200),
+    ],
+)
+async def test_oauth_introspection_and_scope_enforcement(claims, status_code):
+    await _set_up_db()
+    transport = httpx.ASGITransport(app=subscriber_app)
+    async def fake_introspection(_token):
+        if not claims.get("active"):
+            raise HTTPException(status_code=401, detail="Inactive or expired access token")
+        if claims.get("iss") != "https://issuer.test/realms/6g":
+            raise HTTPException(status_code=401, detail="Invalid token issuer")
+        return claims
+
+    with patch("shared.oauth.introspect_access_token", new=AsyncMock(side_effect=fake_introspection)):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/lookup",
+                json={"params": {"imsi": "001010123456789"}},
+                headers={"Authorization": "Bearer opaque-access-token"},
+            )
+    assert response.status_code == status_code

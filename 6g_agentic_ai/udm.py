@@ -5,14 +5,14 @@ UDM Agent — subscriber data, UE profiles, UDR AF profiles, and auth vectors.
 from fastapi import FastAPI, APIRouter, Header, Request
 import secrets, hashlib
 from shared.models import AgentCard, AgentSkill
-from shared.auth import require_auth
+from shared.oauth import require_oauth_scope
 from shared.a2a_client import A2AClient
 from shared.config import settings
 import database
 from database import init_db
 
 router = APIRouter()
-client = A2AClient(agent_id="udm_agent", agent_secret=settings.AGENT_SECRET)
+client = A2AClient("udm-agent", settings.client_credentials("udm-agent")[1])
 
 UDM_CARD = AgentCard(
     name="UDM Agent",
@@ -53,13 +53,13 @@ UDM_CARD = AgentCard(
 )
 
 
-def authenticate(request: Request):
-    return require_auth(request)
+async def authenticate(request: Request, scope: str):
+    return await require_oauth_scope(request, scope)
 
 
 @router.post("/subscriber-data")
 async def get_subscriber_data(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "subscriber:read")
     body = await request.json()
     imsi = body.get("params", {}).get("imsi")
 
@@ -82,7 +82,7 @@ async def get_subscriber_data(request: Request, authorization: str | None = Head
 
 @router.post("/auth-vectors")
 async def get_auth_vectors(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "authentication:request")
     body = await request.json()
     imsi = body.get("params", {}).get("imsi", "001010123456789")
 
@@ -112,7 +112,7 @@ async def get_auth_vectors(request: Request, authorization: str | None = Header(
 
 @router.post("/ue-profile")
 async def get_ue_profile(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "subscriber:read")
     body = await request.json()
     agent_id = body.get("params", {}).get("agent_id", "UE-Agent-001")
 
@@ -128,7 +128,7 @@ async def get_ue_profile(request: Request, authorization: str | None = Header(de
 
 @router.post("/af-profile")
 async def get_af_profile(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "subscriber:read")
     body = await request.json()
     af_agent_id = body.get("params", {}).get("af_agent_id", "AF-Agent-1001")
 
@@ -144,7 +144,7 @@ async def get_af_profile(request: Request, authorization: str | None = Header(de
 
 @router.post("/reverify-subscriber")
 async def reverify_subscriber(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
-    authenticate(request)
+    await authenticate(request, "authentication:request")
     body = await request.json()
     imsi = body.get("params", {}).get("imsi")
 

@@ -9,7 +9,7 @@ from fastapi import APIRouter, FastAPI, Header, HTTPException, Request
 import database
 from database import init_db
 from shared.a2a_client import A2AClient
-from shared.auth import require_auth
+from shared.oauth import require_oauth_scope
 from shared.config import settings
 from shared.models import AgentCard, AgentSkill, UEAgentProfile
 
@@ -23,7 +23,7 @@ UE_IMEI = os.getenv("UE_IMEI", "imei-123456789")
 DIRECT_REGISTRATION = os.getenv("UE_DIRECT_REGISTRATION", "true").lower() == "true"
 
 router = APIRouter()
-client = A2AClient(agent_id=AGENT_ID, agent_secret=settings.AGENT_SECRET)
+client = A2AClient(AGENT_ID.replace("_", "-"), settings.client_credentials(AGENT_ID.replace("_", "-"))[1])
 current_session: str | None = None
 
 ue_profile = UEAgentProfile()
@@ -56,7 +56,7 @@ def json_params(body: dict) -> dict:
 @router.post("/attach")
 async def attach(request: Request):
     global current_session
-    require_auth(request)
+    await require_oauth_scope(request, "agent:write")
     try:
         body = await request.json()
     except Exception:
@@ -69,7 +69,7 @@ async def attach(request: Request):
     result = response.get("result", {})
     inner = result.get("result", {})
     if result.get("status") == "completed":
-        current_session = inner.get("session_token")
+        current_session = str(uuid.uuid4())
         ue_profile.sessionProfile.agentSessionId = current_session or ue_profile.sessionProfile.agentSessionId
         ue_profile.trustProfile.trustScore = inner.get("trustScore", 91)
         ue_profile.trustProfile.riskLevel = inner.get("riskLevel", "LOW")
@@ -79,7 +79,7 @@ async def attach(request: Request):
 @router.post("/service-request")
 async def request_service(request: Request):
     global current_session
-    require_auth(request)
+    await require_oauth_scope(request, "network:write")
     try:
         body = await request.json()
     except Exception:
@@ -92,7 +92,7 @@ async def request_service(request: Request):
     if not current_session:
         await attach(request)
     response = await client.send_by_skill("orchestrate", "service_request", {
-        "imsi": imsi, "session_token": current_session, "service_type": params.get("service_type", "video_call"),
+        "imsi": imsi, "session_id": current_session, "service_type": params.get("service_type", "video_call"),
     })
     return {"jsonrpc": "2.0", "result": response.get("result", response), "id": body.get("id", 2)}
 
@@ -100,7 +100,7 @@ async def request_service(request: Request):
 @router.post("/messages")
 async def receive_message(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     """Authenticated A2A receiver endpoint for a peer UE's JSON-RPC message."""
-    require_auth(request)
+    await require_oauth_scope(request, "agent:write")
     body = await request.json()
     params = json_params(body)
     message = {
@@ -118,7 +118,7 @@ async def receive_message(request: Request, authorization: str | None = Header(d
 @router.post("/send-message")
 async def send_message(request: Request):
     """Discover a peer UE through the registry and send it an A2A message."""
-    require_auth(request)
+    await require_oauth_scope(request, "agent:write")
     body = await request.json()
     params = json_params(body)
     recipient = params.get("recipient")
@@ -135,7 +135,7 @@ async def send_message(request: Request):
 @router.post("/broadcast")
 async def broadcast(request: Request):
     """Send one A2A message to every registered UE except the sending UE."""
-    require_auth(request)
+    await require_oauth_scope(request, "agent:write")
     body = await request.json()
     params = json_params(body)
     cards = await client.list_agents()
@@ -157,7 +157,7 @@ async def broadcast(request: Request):
 
 @router.get("/inbox")
 async def inbox(request: Request):
-    require_auth(request)
+    await require_oauth_scope(request, "agent:read")
     messages = await database.db.agent_messages.find({"recipient": AGENT_ID}).to_list(length=100)
     for message in messages:
         message.pop("_id", None)
@@ -167,7 +167,7 @@ async def inbox(request: Request):
 @router.get("/profile")
 @router.post("/profile")
 async def get_profile(request: Request):
-    require_auth(request)
+    await require_oauth_scope(request, "agent:read")
     return {"jsonrpc": "2.0", "result": ue_profile.model_dump(by_alias=True), "id": "profile_request"}
 
 

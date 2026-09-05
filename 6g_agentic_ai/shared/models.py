@@ -17,7 +17,7 @@ class AgentCapabilities(BaseModel):
 class SecurityScheme(BaseModel):
     type: str = "http"
     scheme: str = "bearer"
-    bearerFormat: str = "JWT"
+    bearerFormat: str = "OAuth2"
 
 
 class AgentProvider(BaseModel):
@@ -26,9 +26,7 @@ class AgentProvider(BaseModel):
 
 
 class AgentAuthenticationProfile(BaseModel):
-    agentCertificate: str = "cert_ue_001_v2"
-    publicKey: str = "pk_rsa_4096_ue_001"
-    authenticationMethod: str = "Agent-AKA"
+    authenticationMethod: str = "OAuth2 Client Credentials"
     authenticationStatus: str = "ACTIVE"
     credentialExpiry: str = "2027-01-01"
 
@@ -122,9 +120,7 @@ class AFAgentProfile(BaseModel):
     serviceContext: str = "SmartFactory"
     authProfile: Dict[str, str] = Field(
         default_factory=lambda: {
-            "certificate": "cert_af_1001_v1",
-            "publicKey": "pk_rsa_4096_af_1001",
-            "authenticationMethod": "Agent-AKA",
+            "authenticationMethod": "OAuth2 Client Credentials",
             "authenticationStatus": "ACTIVE",
             "credentialExpiry": "2027-01-01"
         }

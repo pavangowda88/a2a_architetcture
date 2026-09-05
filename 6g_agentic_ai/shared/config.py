@@ -9,31 +9,29 @@ load_dotenv(dotenv_path=env_path)
 class Settings:
     MONGO_URI = os.getenv("MONGO_URI")
     DATABASE_NAME = os.getenv("DATABASE_NAME", "sixg_agentic")
-    JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
-    JWT_ALGORITHM = "HS256"
-    JWT_EXPIRY_MINUTES = int(os.getenv("JWT_EXPIRY_MINUTES", "30"))
-
-    # single base uri — ports are appended where needed
-    BASE_URI = os.getenv("BASE_URI", "http://localhost").rstrip("/")
-    AGENT_SECRET = os.getenv("AGENT_SECRET", "").strip()
+    BASE_URI = os.getenv("BASE_URI", "http://127.0.0.1").rstrip("/")
+    OAUTH_ISSUER_URL = os.getenv("OAUTH_ISSUER_URL", "http://localhost:8080/realms/6g").rstrip("/")
+    OAUTH_TOKEN_URL = os.getenv(
+        "OAUTH_TOKEN_URL",
+        f"{OAUTH_ISSUER_URL}/protocol/openid-connect/token",
+    )
+    OAUTH_INTROSPECTION_URL = os.getenv(
+        "OAUTH_INTROSPECTION_URL",
+        f"{OAUTH_ISSUER_URL}/protocol/openid-connect/token/introspect",
+    )
+    OAUTH_AUDIENCE = os.getenv("OAUTH_AUDIENCE", "6g-agent-services")
+    OAUTH_SCOPES = os.getenv("OAUTH_SCOPES", "agent:read agent:write")
+    RESOURCE_CLIENT_ID = os.getenv("RESOURCE_CLIENT_ID", "6g-resource-server")
+    RESOURCE_CLIENT_SECRET = os.getenv("RESOURCE_CLIENT_SECRET", "")
 
     def __init__(self):
         if not self.MONGO_URI:
             raise ValueError("MONGO_URI is missing. Set it in the .env file.")
-        if not self.JWT_SECRET:
-            raise ValueError("JWT_SECRET is missing. Set it in the .env file.")
-        if not self.AGENT_SECRET:
-            raise ValueError("AGENT_SECRET is missing. Set it in the .env file.")
-        if self.JWT_SECRET != self.JWT_SECRET.strip() or self.AGENT_SECRET != self.AGENT_SECRET.strip():
-            raise ValueError("JWT_SECRET and AGENT_SECRET must not have leading or trailing whitespace.")
-        if len(self.JWT_SECRET.encode("utf-8")) < 32:
-            raise ValueError("JWT_SECRET must be at least 32 bytes.")
-        if len(self.AGENT_SECRET.encode("utf-8")) < 32:
-            raise ValueError("AGENT_SECRET must be at least 32 bytes.")
 
-    @property
-    def AUTH_URL(self):
-        return f"{self.BASE_URI}:9000"
+    def client_credentials(self, client_id: str) -> tuple[str, str]:
+        env_name = client_id.upper().replace("-", "_") + "_CLIENT_SECRET"
+        secret = os.getenv(env_name, "")
+        return client_id, secret
 
     @property
     def REGISTRY_URL(self):

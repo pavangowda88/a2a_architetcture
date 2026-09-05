@@ -1,6 +1,4 @@
-"""
-A2A Client — login first, then find agent by skill from registry, then call it.
-"""
+"""A2A client using OAuth 2.0 client credentials for protected calls."""
 
 import asyncio
 import httpx
@@ -9,42 +7,24 @@ import time
 from typing import Any, Dict, Optional
 
 from shared.config import settings
+from shared.oauth import OAuthClient
 
 
 class A2AClient:
-    def __init__(self, agent_id: str, agent_secret: str):
-        self.agent_id = agent_id
-        self.agent_secret = agent_secret
-        self.auth_url = settings.AUTH_URL
+    def __init__(self, client_id: str, client_secret: str):
+        self.client_id = client_id
+        self.agent_id = client_id
         self.registry_url = settings.REGISTRY_URL
-        self._token: Optional[str] = None
-        self._token_expiry: float = 0
+        self.oauth = OAuthClient(client_id, client_secret)
 
     def _headers(self, token: str) -> dict:
         return {
             "Authorization": f"Bearer {token}",
-            "X-Agent-Id": self.agent_id,
             "Content-Type": "application/json",
         }
 
-    async def authenticate(self) -> str:
-        # reuse token if still valid
-        if self._token and time.time() < (self._token_expiry - 60):
-            return self._token
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                f"{self.auth_url}/auth/login",
-                json={
-                    "agent_id": self.agent_id,
-                    "agent_secret": self.agent_secret,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            self._token = data["access_token"]
-            self._token_expiry = time.time() + (settings.JWT_EXPIRY_MINUTES * 60)
-            return self._token
+    async def get_access_token(self) -> str:
+        return await self.oauth.get_access_token()
 
     async def find_agent(self, skill_id: str) -> dict:
         """Look up an agent card by skill id from the registry."""
@@ -70,7 +50,7 @@ class A2AClient:
 
     async def send(self, target_url: str, method: str, params: Dict[str, Any] = None) -> dict:
         """Send JSON-RPC to a known URL (after auth)."""
-        token = await self.authenticate()
+        token = await self.get_access_token()
         payload = {
             "jsonrpc": "2.0",
             "method": method,
@@ -101,23 +81,12 @@ class A2AClient:
         return await self.send(f"{card['url'].rstrip('/')}/{endpoint.lstrip('/')}", method, params)
 
     async def send_raw(self, target_url: str, body: Dict[str, Any]) -> dict:
-        token = await self.authenticate()
+        token = await self.get_access_token()
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
                 target_url,
                 json=body,
                 headers=self._headers(token),
-            )
-            response.raise_for_status()
-            return response.json()
-
-    async def verify_token(self) -> dict:
-        """Verify the current JWT with the auth service."""
-        token = await self.authenticate()
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                f"{self.auth_url}/auth/verify",
-                json={"token": token},
             )
             response.raise_for_status()
             return response.json()
@@ -131,7 +100,7 @@ class A2AClient:
         Tell notification agent that skills/card changed.
         Notification forwards to supervisor → auth login/verify → registry update.
         """
-        token = await self.authenticate()
+        token = await self.get_access_token()
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
                 f"{settings.NOTIFICATION_URL}/notify",

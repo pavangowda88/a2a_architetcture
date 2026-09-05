@@ -5,13 +5,13 @@ Supervisor will login, verify, then update the registry.
 
 from fastapi import FastAPI, APIRouter, Request, HTTPException
 from shared.models import AgentCard, AgentSkill
-from shared.auth import require_auth
+from shared.oauth import require_oauth_scope
 from shared.a2a_client import A2AClient
 from shared.config import settings
 from database import init_db
 
 router = APIRouter()
-client = A2AClient(agent_id="notification_agent", agent_secret=settings.AGENT_SECRET)
+client = A2AClient("notification-agent", settings.client_credentials("notification-agent")[1])
 
 NOTIF_CARD = AgentCard(
     name="Notification Agent",
@@ -30,7 +30,7 @@ NOTIF_CARD = AgentCard(
 
 @router.post("/notify")
 async def notify_card_change(request: Request):
-    require_auth(request)
+    await require_oauth_scope(request, "agent:write")
     body = await request.json()
     card = body.get("card")
 

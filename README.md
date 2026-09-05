@@ -63,12 +63,45 @@ The MCP gateway is both an OAuth client for downstream A2A calls and a protected
 
 `run_all.py` starts the Registry-dependent services and the MCP gateway. Keycloak must already be running before agent traffic is used.
 
-## Tests
+# Running the 6G Agentic AI system
 
-Run the local tests with:
+Prerequisites:
+
+```powershell
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Start Keycloak first with a realm named `6g`, the OAuth clients and scopes described in `README.md`, and the credentials configured in `.env`. Start MongoDB, then seed application data:
+
+For a fast, repeatable Keycloak setup after starting the Keycloak Docker container, run this PowerShell script. It creates the realm, clients, scopes, audience mapper, and updates `.env` with generated secrets:
+
+```powershell
+.\setup-keycloak.ps1
+```
+
+The script defaults to `http://localhost:8080` with the admin credentials from the Docker command (`admin` / `admin`). For different values:
+
+```powershell
+.\setup-keycloak.ps1 -KeycloakUrl "http://localhost:8080" -AdminUser "admin" -AdminPassword "your-password"
+```
+
+Then continue with:
+
+```powershell
+python seed.py --reset
+```
+
+Start all application services from this directory:
+
+```powershell
+python run_all.py
+```
+
+The MCP endpoint is `http://localhost:8010/mcp` and Registry discovery is `http://localhost:9001/registry/agents`. External MCP clients should connect to the MCP endpoint; OAuth credentials remain server-side.
+
+Run tests:
 
 ```powershell
 python -m pytest -v
 ```
-
-Tests mock the OAuth token and introspection endpoints; no live Keycloak instance is required for unit tests.

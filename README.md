@@ -1,107 +1,234 @@
-# 6G Agentic AI
+# 6G Agentic AI Core Network
 
-A 6G core-network demonstration composed of A2A agents, an agent registry, a Supervisor orchestrator, a FastMCP gateway, and network services including AUSF, UDM, Subscriber, Security, and UE agents.
+This project runs a local 6G agentic core network with A2A services, MongoDB persistence, Keycloak OAuth 2.0 authentication, and a FastMCP gateway for VS Code or another MCP client.
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    K[Keycloak OAuth 2.0 Authorization Server]
-    L[LLM / MCP Client] --> M[MCP Gateway]
-    M --> S[Supervisor]
-    S --> A[AUSF]
-    S --> U[UDM]
-    S --> B[Subscriber]
-    S --> R[Security]
-    M --> G[Agent Registry]
-    K -. client credentials and introspection .-> M
-    K -. access tokens .-> S
-    K -. access tokens .-> A
-    K -. access tokens .-> U
-    K -. access tokens .-> B
-    K -. access tokens .-> R
-```
+The services are started by `run_all.py` in this order:
 
-## OAuth 2.0
+| Service | Module | Port | Purpose |
+| --- | --- | ---: | --- |
+| Registry | `registry.py` | 9001 | Agent card registration and discovery |
+| Notification Agent | `notification_agent.py` | 8006 | Agent card change notifications |
+| Supervisor Agent | `supervisor.py` | 8000 | Orchestrates network workflows |
+| AUSF Agent | `ausf.py` | 8001 | UE authentication |
+| Subscriber Agent | `subscriber.py` | 8002 | QoS and session management |
+| UDM Agent | `udm.py` | 8003 | Subscriber and UE data |
+| Security Agent | `security.py` | 8005 | Trust and risk evaluation |
+| UE Agent 001 | `ue.py` | 8004 | UE `ue_agent_001` |
+| UE Agent 002 | `ue.py` | 8007 | UE `ue_agent_002` |
+| FastMCP Gateway | `mcp_server.py` | 8010 | MCP tools over Streamable HTTP |
 
-Keycloak is the Authorization Server. Each service is registered as a confidential OAuth client and uses the Client Credentials grant for outbound A2A calls. FastAPI services are OAuth Resource Servers: they introspect bearer access tokens and enforce scopes. The application does not issue or validate access tokens.
+Important endpoints:
 
-Typical flow:
+- MCP: `http://localhost:8010/mcp`
+- Registry: `http://localhost:9001/registry/agents`
+- Keycloak issuer: `http://localhost:8080/realms/6g`
+- Keycloak token endpoint: `http://localhost:8080/realms/6g/protocol/openid-connect/token`
+- Keycloak introspection endpoint: `http://localhost:8080/realms/6g/protocol/openid-connect/token/introspect`
 
-```text
-Agent -> Keycloak token endpoint -> OAuth access token -> Protected agent -> scope validation
-```
+## Prerequisites
 
-The MCP gateway is both an OAuth client for downstream A2A calls and a protected MCP resource. OAuth credentials remain in the gateway infrastructure and are never passed to the LLM.
+Install the following before starting:
 
-## Scopes
+- Windows PowerShell
+- Python 3.10 or newer
+- MongoDB or a MongoDB Atlas connection string
+- Keycloak 24+ running at `http://localhost:8080`
+- VS Code with MCP support, when using the MCP gateway from VS Code
 
-| Scope | Purpose |
-| --- | --- |
-| agent:read | Read agent information |
-| agent:write | Register or modify agent information |
-| authentication:request | Request AUSF/UDM authentication work |
-| subscriber:read | Read subscriber and UDM data |
-| subscriber:write | Update subscriber sessions |
-| security:read | Read trust information |
-| security:write | Re-evaluate trust |
-| network:read | Read network state |
-| network:write | Attach UEs and request services |
-| mcp:execute | Execute protected MCP operations |
-| automation:execute | Execute automation workflows |
+The project does not contain a Docker Compose file. Start MongoDB and Keycloak using the commands or services used by your local installation.
 
-## Setup
+## Installation
 
-1. Start Keycloak and create a realm named `6g`.
-2. Create the `6g-agent-services` audience and the scopes listed above.
-3. Create one confidential client for each service named in `.env.example`, enable `client_credentials`, and assign only required scopes.
-4. Copy `.env.example` to `.env` and fill in the Keycloak client secrets and MongoDB URI.
-5. Install dependencies: `pip install -r requirements.txt`.
-6. Start MongoDB and seed application data with `python seed.py`.
-7. Start the agents and MCP gateway with `python run_all.py`.
-8. The MCP endpoint is `http://localhost:8010/mcp`; Registry discovery is `http://localhost:9001/registry/agents`.
-
-`run_all.py` starts the Registry-dependent services and the MCP gateway. Keycloak must already be running before agent traffic is used.
-
-# Running the 6G Agentic AI system
-
-Prerequisites:
+Open PowerShell in this directory:
 
 ```powershell
+cd D:\Projects\nokia\a2a_architetcture\6g_agentic_ai
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-Copy-Item .env.example .env
 ```
 
-Start Keycloak first with a realm named `6g`, the OAuth clients and scopes described in `README.md`, and the credentials configured in `.env`. Start MongoDB, then seed application data:
+If PowerShell blocks script activation, use the virtual-environment interpreter directly, for example `.\venv\Scripts\python.exe`.
 
-For a fast, repeatable Keycloak setup after starting the Keycloak Docker container, run this PowerShell script. It creates the realm, clients, scopes, audience mapper, and updates `.env` with generated secrets:
+## Environment configuration
+
+Create `.env` from your local template when one is available. The application requires these settings:
+
+```dotenv
+MONGO_URI=<MongoDB connection string>
+DATABASE_NAME=sixg_agentic
+BASE_URI=http://localhost
+
+OAUTH_ISSUER_URL=http://localhost:8080/realms/6g
+OAUTH_TOKEN_URL=http://localhost:8080/realms/6g/protocol/openid-connect/token
+OAUTH_INTROSPECTION_URL=http://localhost:8080/realms/6g/protocol/openid-connect/token/introspect
+OAUTH_AUDIENCE=6g-agent-services
+OAUTH_SCOPES=agent:read agent:write authentication:request subscriber:read subscriber:write security:read security:write network:read network:write mcp:execute automation:execute
+
+RESOURCE_CLIENT_ID=6g-resource-server
+RESOURCE_CLIENT_SECRET=<generated by setup-keycloak.ps1>
+
+SUPERVISOR_AGENT_CLIENT_SECRET=<generated secret>
+AUSF_AGENT_CLIENT_SECRET=<generated secret>
+UDM_AGENT_CLIENT_SECRET=<generated secret>
+SUBSCRIBER_AGENT_CLIENT_SECRET=<generated secret>
+SECURITY_AGENT_CLIENT_SECRET=<generated secret>
+NOTIFICATION_AGENT_CLIENT_SECRET=<generated secret>
+MCP_SERVER_CLIENT_SECRET=<generated secret>
+UE_AGENT_001_CLIENT_SECRET=<generated secret>
+UE_AGENT_002_CLIENT_SECRET=<generated secret>
+```
+
+Never commit `.env` or paste its secrets into documentation. `setup-keycloak.ps1` creates or updates the Keycloak clients and writes the generated secrets into `.env`.
+
+## Keycloak configuration
+
+Start Keycloak first. The setup script expects the Keycloak admin console/API at `http://localhost:8080`, realm administrator `admin`, and password `admin` by default.
+
+Run:
 
 ```powershell
 .\setup-keycloak.ps1
 ```
 
-The script defaults to `http://localhost:8080` with the admin credentials from the Docker command (`admin` / `admin`). For different values:
+For another Keycloak URL or administrator account:
 
 ```powershell
-.\setup-keycloak.ps1 -KeycloakUrl "http://localhost:8080" -AdminUser "admin" -AdminPassword "your-password"
+.\setup-keycloak.ps1 `
+  -KeycloakUrl "http://localhost:8080" `
+  -Realm "6g" `
+  -AdminUser "admin" `
+  -AdminPassword "<local-admin-password>"
 ```
 
-Then continue with:
+The script is idempotent. It creates or updates:
+
+- Realm: `6g`
+- Public VS Code client: `vscode-mcp`
+- Confidential clients: `6g-agent-services`, `6g-resource-server`, `supervisor-agent`, `ausf-agent`, `udm-agent`, `subscriber-agent`, `security-agent`, `notification-agent`, `mcp-server`, `ue-agent-001`, and `ue-agent-002`
+- OAuth scopes: `agent:read`, `agent:write`, `authentication:request`, `subscriber:read`, `subscriber:write`, `security:read`, `security:write`, `network:read`, `network:write`, `mcp:execute`, and `automation:execute`
+- Audience scopes: `6g-agent-services-audience` and `6g-resource-server-audience`
+- Audience mappers for `6g-agent-services` and `6g-resource-server`
+- Default scopes for the service clients
+- Dynamic client-registration permissions for the MCP scopes
+- Trusted local registration hosts: `localhost`, `127.0.0.1`, and `::1`
+
+The VS Code client uses these redirect URIs:
+
+- `http://127.0.0.1:33418/*`
+- `https://vscode.dev/redirect`
+
+It uses these web origins:
+
+- `http://127.0.0.1:33418`
+- `https://vscode.dev`
+
+After setup, verify that `.env` contains a value for every `*_CLIENT_SECRET` listed above. Do not manually invent those values.
+
+## VS Code MCP configuration
+
+There is currently no checked-in `.vscode` directory. Add the following local file as `.vscode/mcp.json`, or use the VS Code command `MCP: Add Server` with the same URL:
+
+```json
+{
+  "servers": {
+    "6g-core-network": {
+      "type": "http",
+      "url": "http://localhost:8010/mcp"
+    }
+  }
+}
+```
+
+When VS Code prompts for OAuth, sign in to the `6g` realm. The `vscode-mcp` public client is configured by `setup-keycloak.ps1`; no client secret belongs in `.vscode/mcp.json`.
+
+Useful VS Code settings for this project are optional and local. Do not place secrets in `settings.json`:
+
+```json
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"]
+}
+```
+
+## Start the system
+
+1. Start MongoDB and Keycloak.
+2. Install dependencies and configure `.env`.
+3. Run the Keycloak setup script.
+4. Seed the sample database:
 
 ```powershell
 python seed.py --reset
 ```
 
-Start all application services from this directory:
+`--reset` deletes and recreates sample application data. Do not use it against a database that contains data you need to preserve.
+
+5. Start all core services:
 
 ```powershell
 python run_all.py
 ```
 
-The MCP endpoint is `http://localhost:8010/mcp` and Registry discovery is `http://localhost:9001/registry/agents`. External MCP clients should connect to the MCP endpoint; OAuth credentials remain server-side.
+Leave this PowerShell window running. Press `Ctrl+C` to stop every service started by the launcher.
 
-Run tests:
+6. In a second PowerShell window, start the MCP gateway:
+
+```powershell
+python mcp_server.py
+```
+
+The launcher does not start the MCP gateway automatically. Confirm the registry before connecting VS Code:
+
+```powershell
+Invoke-RestMethod http://localhost:9001/registry/agents
+```
+
+## Quick MCP checks
+
+The MCP gateway requires a Keycloak access token with the `mcp:execute` scope. After connecting from VS Code, the available tools include UE attachment, service requests, registry queries, peer messaging, and supervisor workflows.
+
+The two UE identifiers started by `run_all.py` are:
+
+- `ue_agent_001`, port `8004`, IMSI `001010123456789`, IMEI `imei-123456789`
+- `ue_agent_002`, port `8007`, IMSI `001010000000001`, IMEI `356938035643809`
+
+To send `Hi` from UE 1 to UE 2 through the MCP client, call the peer-message tool with:
+
+```text
+sender_id: ue_agent_001
+recipient_id: ue_agent_002
+topic: greeting
+content: Hi
+```
+
+## Tests and troubleshooting
+
+Run the test suite:
 
 ```powershell
 python -m pytest -v
 ```
+
+Common checks:
+
+- Port already in use: stop an older `run_all.py` or MCP process before restarting.
+- Authentication failure: rerun `setup-keycloak.ps1` and verify the issuer URL and generated secrets in `.env`.
+- MongoDB failure: verify `MONGO_URI`, network access, and the selected `DATABASE_NAME`.
+- MCP connection failure: confirm `python mcp_server.py` is running on port `8010` and that VS Code is using `/mcp`.
+- Registry is empty: restart the services in `run_all.py` order and query the registry again.
+
+## Project files
+
+- `run_all.py`: starts and monitors the nine core services.
+- `mcp_server.py`: exposes the authenticated FastMCP gateway.
+- `setup-keycloak.ps1`: provisions the realm, clients, scopes, mappers, and `.env` secrets.
+- `seed.py`: creates sample subscriber, UE, AF, and related application data.
+- `shared/`: shared configuration, models, OAuth, and A2A client code.
+- `tests/`: authentication and MCP tool tests.
+- `running.txt`: short Windows startup and shutdown checklist.

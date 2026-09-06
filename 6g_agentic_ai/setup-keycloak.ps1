@@ -90,12 +90,22 @@ function Ensure-VscodeMcpClient {
             directAccessGrantsEnabled = $false
             clientAuthenticatorType = "none"
             redirectUris = @(
+                "http://127.0.0.1:*"
+                "http://localhost:*"
                 "http://127.0.0.1:33418/*"
+                "http://localhost:33418/*"
                 "https://vscode.dev/redirect"
+                "https://vscode.dev/*"
+                "vscode://*"
+                "vscode-insiders://*"
             )
             webOrigins = @(
+                "http://127.0.0.1:*"
+                "http://localhost:*"
                 "http://127.0.0.1:33418"
+                "http://localhost:33418"
                 "https://vscode.dev"
+                "+"
             )
         } | Out-Null
         $client = Get-ExistingByName -Path "/admin/realms/$Realm/clients?clientId=vscode-mcp" -Property "clientId" -Value "vscode-mcp"
@@ -107,12 +117,22 @@ function Ensure-VscodeMcpClient {
         $client.directAccessGrantsEnabled = $false
         $client.clientAuthenticatorType = "none"
         $client.redirectUris = @(
+            "http://127.0.0.1:*"
+            "http://localhost:*"
             "http://127.0.0.1:33418/*"
+            "http://localhost:33418/*"
             "https://vscode.dev/redirect"
+            "https://vscode.dev/*"
+            "vscode://*"
+            "vscode-insiders://*"
         )
         $client.webOrigins = @(
+            "http://127.0.0.1:*"
+            "http://localhost:*"
             "http://127.0.0.1:33418"
+            "http://localhost:33418"
             "https://vscode.dev"
+            "+"
         )
         Invoke-Kc -Method PUT -Path "/admin/realms/$Realm/clients/$($client.id)" -Body $client | Out-Null
     }
@@ -129,6 +149,48 @@ function Ensure-DefaultScope {
     $assigned = Invoke-Kc -Method GET -Path "/admin/realms/$Realm/clients/$ClientUuid/default-client-scopes"
     if (-not (@($assigned) | Where-Object { $_.id -eq $ScopeUuid })) {
         Invoke-Kc -Method PUT -Path "/admin/realms/$Realm/clients/$ClientUuid/default-client-scopes/$ScopeUuid" -Body $null | Out-Null
+    }
+}
+
+function Ensure-RealmDefaultScope {
+    param([string]$ScopeUuid)
+    $assigned = Invoke-Kc -Method GET -Path "/admin/realms/$Realm/default-default-client-scopes"
+    if (-not (@($assigned) | Where-Object { $_.id -eq $ScopeUuid })) {
+        Invoke-Kc -Method PUT -Path "/admin/realms/$Realm/default-default-client-scopes/$ScopeUuid" -Body $null | Out-Null
+    }
+}
+
+function Ensure-User {
+    param(
+        [string]$Username,
+        [string]$Password,
+        [string]$Email = "",
+        [string]$FirstName = "",
+        [string]$LastName = ""
+    )
+    $existing = Get-ExistingByName -Path "/admin/realms/$Realm/users?username=$Username" -Property "username" -Value $Username
+    if (-not $existing) {
+        Invoke-Kc -Method POST -Path "/admin/realms/$Realm/users" -Body @{
+            username = $Username
+            enabled = $true
+            emailVerified = $true
+            email = if ($Email) { $Email } else { "$Username@6g.net" }
+            firstName = if ($FirstName) { $FirstName } else { $Username }
+            lastName = if ($LastName) { $LastName } else { "User" }
+            credentials = @(
+                @{
+                    type = "password"
+                    value = $Password
+                    temporary = $false
+                }
+            )
+        } | Out-Null
+    } else {
+        Invoke-Kc -Method PUT -Path "/admin/realms/$Realm/users/$($existing.id)/reset-password" -Body @{
+            type = "password"
+            value = $Password
+            temporary = $false
+        } | Out-Null
     }
 }
 
@@ -160,7 +222,7 @@ function Ensure-TrustedHostsPolicy {
             }
         }
         $config["trusted-hosts"] = @($TrustedHosts)
-        $config["host-sending-registration-request-must-match"] = @("true")
+        $config["host-sending-registration-request-must-match"] = @("false")
         $config["client-uris-must-match"] = @("true")
         $component.config = $config
         Invoke-Kc -Method PUT -Path "/admin/realms/$Realm/components/$($component.id)" -Body $component | Out-Null
@@ -190,9 +252,12 @@ Write-Host "Creating client scopes..."
 $scopeIds = @{}
 foreach ($scopeName in $scopeNames) {
     $scopeIds[$scopeName] = Ensure-ClientScope -Name $scopeName
+    Ensure-RealmDefaultScope -ScopeUuid $scopeIds[$scopeName]
 }
 $audienceScopeId = Ensure-ClientScope -Name "6g-agent-services-audience"
+Ensure-RealmDefaultScope -ScopeUuid $audienceScopeId
 $resourceAudienceScopeId = Ensure-ClientScope -Name "6g-resource-server-audience"
+Ensure-RealmDefaultScope -ScopeUuid $resourceAudienceScopeId
 
 Write-Host "Configuring VS Code MCP OAuth client..."
 $vscodeMcpClientUuid = Ensure-VscodeMcpClient
@@ -208,7 +273,7 @@ $registrationScopes = @(
 Ensure-RegistrationScopePolicy -AllowedScopes $registrationScopes
 
 Write-Host "Allowing local MCP client registration hosts..."
-Ensure-TrustedHostsPolicy -TrustedHosts @("localhost", "127.0.0.1", "::1")
+Ensure-TrustedHostsPolicy -TrustedHosts @("localhost", "127.0.0.1", "::1", "*")
 
 $audienceScopeMapper = Invoke-Kc -Method GET -Path "/admin/realms/$Realm/client-scopes/$audienceScopeId/protocol-mappers/models"
 if (-not (@($audienceScopeMapper) | Where-Object { $_.name -eq "6g-agent-services-audience" })) {
@@ -254,6 +319,44 @@ foreach ($clientId in $clientIds) {
         Ensure-DefaultScope -ClientUuid $clientUuid -ScopeUuid $scopeIds[$scopeName]
     }
 }
+
+Write-Host "Updating redirect URIs and default scopes for all registered clients..."
+$allClients = Invoke-Kc -Method GET -Path "/admin/realms/$Realm/clients"
+foreach ($c in $allClients) {
+    if ($c.publicClient -or $c.clientId -eq "vscode-mcp") {
+        Ensure-DefaultScope -ClientUuid $c.id -ScopeUuid $scopeIds["mcp:execute"]
+        Ensure-DefaultScope -ClientUuid $c.id -ScopeUuid $audienceScopeId
+        Ensure-DefaultScope -ClientUuid $c.id -ScopeUuid $resourceAudienceScopeId
+        $c.redirectUris = @(
+            "http://127.0.0.1:*"
+            "http://localhost:*"
+            "http://127.0.0.1:33418/*"
+            "http://127.0.0.1:33418"
+            "http://127.0.0.1:33418/"
+            "http://localhost:33418/*"
+            "http://localhost:33418"
+            "http://localhost:33418/"
+            "https://vscode.dev/redirect"
+            "https://vscode.dev/*"
+            "vscode://*"
+            "vscode-insiders://*"
+            "*"
+        )
+        $c.webOrigins = @(
+            "http://127.0.0.1:*"
+            "http://localhost:*"
+            "http://127.0.0.1:33418"
+            "http://localhost:33418"
+            "https://vscode.dev"
+            "+"
+        )
+        Invoke-Kc -Method PUT -Path "/admin/realms/$Realm/clients/$($c.id)" -Body $c | Out-Null
+    }
+}
+
+Write-Host "Provisioning user accounts in realm '$Realm'..."
+Ensure-User -Username "admin" -Password "admin" -Email "admin@6g.net" -FirstName "6G" -LastName "Admin"
+Ensure-User -Username "user" -Password "user" -Email "user@6g.net" -FirstName "6G" -LastName "User"
 
 if (-not (Test-Path $envFile)) {
     Copy-Item $envExample $envFile

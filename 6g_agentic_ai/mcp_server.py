@@ -41,34 +41,73 @@ if not any(isinstance(handler, logging.FileHandler) for handler in oauth_logger.
 
 
 class KeycloakTokenVerifier(TokenVerifier):
-    """Adapt Keycloak introspection to FastMCP's resource-server interface."""
-
     async def verify_token(self, token: str) -> AccessToken | None:
+        logger.info(
+            "MCP received Authorization token: present=%s length=%s",
+            bool(token),
+            len(token) if token else 0,
+        )
+
         try:
             claims = await introspect_access_token(token)
+
+            logger.info(
+                "KEYCLOAK INTROSPECTION RESULT: active=%r client_id=%r azp=%r "
+                "scope=%r exp=%r iat=%r iss=%r",
+                claims.get("active"),   
+                claims.get("client_id"),
+                claims.get("azp"),
+                claims.get("scope"),
+                claims.get("exp"),
+                claims.get("iat"),
+                claims.get("iss"),
+            )
+
         except HTTPException as exc:
-            logger.warning(
-                "MCP token verification rejected request: status=%s detail=%s",
+            logger.error(
+                "KEYCLOAK INTROSPECTION FAILED: status=%s detail=%s",
                 exc.status_code,
                 exc.detail,
             )
             return None
+
+        if not claims.get("active", False):
+            logger.error("MCP TOKEN REJECTED: Keycloak says active=false")
+            return None
+
         scopes = str(claims.get("scope", "")).split()
+
         logger.info(
-            "MCP token verification succeeded: client_id=%r scopes=%r required_scopes=%r",
-            claims.get("client_id", claims.get("azp")),
+            "MCP TOKEN SCOPES: %r | required: mcp:execute",
             scopes,
-            ["mcp:execute"],
         )
+
+        if "mcp:execute" not in scopes:
+            logger.error(
+                "MCP TOKEN REJECTED: mcp:execute scope missing"
+            )
+            return None
+
         return AccessToken(
             token=token,
-            client_id=str(claims.get("client_id", claims.get("azp", "unknown"))),
+            client_id=str(
+                claims.get(
+                    "client_id",
+                    claims.get("azp", "unknown")
+                )
+            ),
             scopes=scopes,
             expires_at=int(claims["exp"]) if claims.get("exp") else None,
             subject=claims.get("sub"),
             claims=claims,
         )
 
+_issuer = settings.OAUTH_ISSUER_URL
+_alt_issuer = (
+    _issuer.replace("localhost", "127.0.0.1")
+    if "localhost" in _issuer
+    else _issuer.replace("127.0.0.1", "localhost")
+)
 
 mcp_auth = RemoteAuthProvider(
     token_verifier=KeycloakTokenVerifier(
@@ -76,7 +115,7 @@ mcp_auth = RemoteAuthProvider(
         resource_base_url=f"{settings.BASE_URI}:8010",
         required_scopes=["mcp:execute"],
     ),
-    authorization_servers=[AnyHttpUrl(settings.OAUTH_ISSUER_URL)],
+    authorization_servers=[AnyHttpUrl(_issuer), AnyHttpUrl(_alt_issuer)],
     base_url=f"{settings.BASE_URI}:8010",
     resource_base_url=f"{settings.BASE_URI}:8010",
 )
@@ -720,9 +759,12 @@ def diagnose_network_issue(
     return prompt
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Entrypoint
-# ═══════════════════════════════════════════════════════════════════════════
+
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8010, path="/mcp")
+    mcp.run(
+        transport="streamable-http",
+        host="localhost",
+        port=8010,
+        path="/mcp",
+    )

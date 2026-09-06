@@ -49,10 +49,15 @@ async def introspect_access_token(token: str) -> dict[str, Any]:
     if not claims.get("active"):
         logger.warning("OAuth validation rejected token: inactive or expired")
         raise HTTPException(status_code=401, detail="Inactive or expired access token")
-    if claims.get("iss") != settings.OAUTH_ISSUER_URL:
+    allowed_issuers = {
+        settings.OAUTH_ISSUER_URL,
+        settings.OAUTH_ISSUER_URL.replace("localhost", "127.0.0.1"),
+        settings.OAUTH_ISSUER_URL.replace("127.0.0.1", "localhost"),
+    }
+    if claims.get("iss") not in allowed_issuers:
         logger.warning(
             "OAuth validation rejected token: issuer mismatch expected=%r actual=%r",
-            settings.OAUTH_ISSUER_URL,
+            allowed_issuers,
             claims.get("iss"),
         )
         raise HTTPException(status_code=401, detail="Invalid token issuer")

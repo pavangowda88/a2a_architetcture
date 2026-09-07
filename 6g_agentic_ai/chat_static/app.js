@@ -1,4 +1,6 @@
-const state = { id: crypto.randomUUID(), messages: [], tools: [], developer: false, controller: null };
+const STORAGE_KEY = 'mcp-chat-conversations';
+const ACTIVE_KEY = 'mcp-chat-active';
+const state = { id: localStorage.getItem(ACTIVE_KEY) || crypto.randomUUID(), messages: [], tools: [], developer: false, controller: null };
 const $ = (selector) => document.querySelector(selector);
 const conversation = $('#conversation');
 const input = $('#messageInput');
@@ -37,19 +39,24 @@ function markdown(value) {
   closeList();
   return html || '<p></p>';
 }
-function saveHistory() {
-  const history = JSON.parse(localStorage.getItem('mcp-chat-history') || '[]').filter((item) => item.id !== state.id);
-  history.unshift({ id: state.id, title: state.messages.find((item) => item.role === 'user')?.text || 'New conversation' });
-  localStorage.setItem('mcp-chat-history', JSON.stringify(history.slice(0, 12)));
+function saveConversation() {
+  const conversations = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]').filter((item) => item.id !== state.id);
+  conversations.unshift({
+    id: state.id,
+    title: state.messages.find((item) => item.role === 'user')?.text || 'New conversation',
+    messages: state.messages,
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.slice(0, 12)));
+  localStorage.setItem(ACTIVE_KEY, state.id);
   renderHistory();
 }
 function renderHistory() {
-  const history = JSON.parse(localStorage.getItem('mcp-chat-history') || '[]');
+  const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
   $('#history').innerHTML = history.map((item) => `<button class="${item.id === state.id ? 'active' : ''}" data-id="${item.id}">${escapeHtml(item.title)}</button>`).join('');
 }
 function addMessage(role, text, steps = []) {
   $('#welcome').hidden = true;
-  state.messages.push({ role, text });
+  state.messages.push({ role, text, steps });
   const item = document.createElement('article');
   item.className = `message ${role}`;
   item.innerHTML = `<div class="message-bubble${role === 'assistant' ? ' markdown' : ''}">${role === 'assistant' ? markdown(text) : escapeHtml(text)}</div>`;
@@ -59,12 +66,32 @@ function addMessage(role, text, steps = []) {
     item.innerHTML += `<details class="tool-card" ${details ? '' : ''}><summary class="tool-summary"><span class="tool-icon">${step.status === 'completed' ? '✓' : '⚙'}</span><strong>${escapeHtml(step.tool)}</strong><span class="tool-status">${status}${step.duration_ms ? ` · ${step.duration_ms}ms` : ''}</span></summary><div class="tool-body"><div class="json-block"><label>Input</label><pre>${json(step.input)}</pre></div>${step.output !== undefined ? `<div class="json-block"><label>Output</label><pre>${json(step.output)}</pre></div>` : step.error ? `<div class="json-block"><label>Error</label><pre>${escapeHtml(step.error)}</pre></div>` : ''}</div></details>`;
   });
   conversation.appendChild(item); conversation.scrollTop = conversation.scrollHeight;
+  saveConversation();
+}
+function renderConversation() {
+  conversation.querySelectorAll('.message').forEach((item) => item.remove());
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]').find((item) => item.id === state.id);
+  state.messages = saved?.messages || [];
+  $('#welcome').hidden = state.messages.length > 0;
+  state.messages.forEach((message) => addMessageMarkup(message));
+  renderHistory();
+}
+function addMessageMarkup(message) {
+  const item = document.createElement('article');
+  item.className = `message ${message.role}`;
+  item.innerHTML = `<div class="message-bubble${message.role === 'assistant' ? ' markdown' : ''}">${message.role === 'assistant' ? markdown(message.text) : escapeHtml(message.text)}</div>`;
+  (message.steps || []).forEach((step) => {
+    const status = step.status === 'completed' ? '✓ Completed' : step.status === 'error' ? 'Failed' : step.status === 'confirmation' ? 'Needs confirmation' : 'Waiting';
+    const details = state.developer || step.status === 'completed' || step.status === 'error';
+    item.innerHTML += `<details class="tool-card" ${details ? '' : ''}><summary class="tool-summary"><span class="tool-icon">${step.status === 'completed' ? '✓' : '⚙'}</span><strong>${escapeHtml(step.tool)}</strong><span class="tool-status">${status}${step.duration_ms ? ` · ${step.duration_ms}ms` : ''}</span></summary><div class="tool-body"><div class="json-block"><label>Input</label><pre>${json(step.input)}</pre></div>${step.output !== undefined ? `<div class="json-block"><label>Output</label><pre>${json(step.output)}</pre></div>` : step.error ? `<div class="json-block"><label>Error</label><pre>${escapeHtml(step.error)}</pre></div>` : ''}</div></details>`;
+  });
+  conversation.appendChild(item);
 }
 function setThinking(active, text = 'Selecting a tool') { $('#thinking').hidden = !active; $('#thinkingText').textContent = text; $('#sendButton').disabled = false; $('#sendButton').textContent = active ? '■' : '↑'; $('#sendButton').setAttribute('aria-label', active ? 'Stop execution' : 'Send message'); }
 function resizeInput() { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 160)}px`; }
 async function send(text) {
   if (!text.trim() || state.controller) return;
-  addMessage('user', text.trim()); saveHistory(); input.value = ''; resizeInput(); setThinking(true, 'Discovering tools');
+  addMessage('user', text.trim()); input.value = ''; resizeInput(); setThinking(true, 'Discovering tools');
   state.controller = new AbortController();
   try {
     setTimeout(() => { if (state.controller) $('#thinkingText').textContent = 'Running MCP capability'; }, 350);
@@ -85,7 +112,9 @@ $('#composer').addEventListener('submit', (event) => { event.preventDefault(); s
 $('#sendButton').addEventListener('click', (event) => { if (state.controller) { event.preventDefault(); state.controller.abort(); state.controller = null; setThinking(false); } });
 input.addEventListener('input', resizeInput); input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey || !event.shiftKey)) { event.preventDefault(); send(input.value); } });
 document.addEventListener('click', (event) => { const suggestion = event.target.closest('[data-prompt]'); if (suggestion) { input.value = suggestion.dataset.prompt; resizeInput(); input.focus(); } });
-$('#newChat').addEventListener('click', () => { location.reload(); }); $('#clearChat').addEventListener('click', () => { state.messages = []; conversation.innerHTML = ''; conversation.appendChild($('#welcome')); $('#welcome').hidden = false; });
+$('#newChat').addEventListener('click', () => { state.id = crypto.randomUUID(); state.messages = []; localStorage.setItem(ACTIVE_KEY, state.id); conversation.querySelectorAll('.message').forEach((item) => item.remove()); $('#welcome').hidden = false; renderHistory(); input.focus(); });
+$('#clearChat').addEventListener('click', () => { state.messages = []; const conversations = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]').filter((item) => item.id !== state.id); localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations)); localStorage.setItem(ACTIVE_KEY, state.id); conversation.querySelectorAll('.message').forEach((item) => item.remove()); $('#welcome').hidden = false; renderHistory(); });
+$('#history').addEventListener('click', (event) => { const button = event.target.closest('[data-id]'); if (!button) return; state.id = button.dataset.id; localStorage.setItem(ACTIVE_KEY, state.id); renderConversation(); });
 $('#developerToggle').addEventListener('click', (event) => { state.developer = !state.developer; event.currentTarget.classList.toggle('active', state.developer); });
 $('#settingsButton').addEventListener('click', () => $('#settingsDialog').showModal()); $('#closeSettings').addEventListener('click', () => $('#settingsDialog').close());
-renderHistory(); loadStatus();
+renderHistory(); renderConversation(); loadStatus();

@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import socket
+import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastmcp import FastMCP
@@ -41,6 +46,34 @@ if not any(isinstance(handler, logging.FileHandler) for handler in logger.handle
 oauth_logger = logging.getLogger("shared.oauth")
 if not any(isinstance(handler, logging.FileHandler) for handler in oauth_logger.handlers):
     oauth_logger.addHandler(logging.FileHandler("mcp_server.log"))
+
+_robot_processes: dict[str, subprocess.Popen] = {}
+
+
+async def _provision_robot_endpoint(card: dict) -> dict:
+    """Start the generic task service for a new local robot when its port is free."""
+    parsed = urlparse(card["url"])
+    if parsed.hostname not in {"localhost", "127.0.0.1"} or not parsed.port:
+        return {"status": "external", "message": "Robot endpoint must be started by its owner"}
+    port = parsed.port
+    try:
+        with socket.create_connection((parsed.hostname, port), timeout=0.2):
+            return {"status": "occupied", "message": f"Port {port} is already in use"}
+    except OSError:
+        pass
+
+    process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "robot_agent:app", "--host", "0.0.0.0", "--port", str(port)],
+        cwd=os.path.dirname(__file__),
+        env={
+            **os.environ,
+            "ROBOT_AGENT_ID": card["id"],
+            "ROBOT_SKILLS": ",".join(skill["id"] for skill in card["skills"]),
+            "ROBOT_MAX_PAYLOAD_KG": str((card.get("metadata") or {}).get("max_payload_kg", 0)),
+        },
+    )
+    _robot_processes[card["id"]] = process
+    return {"status": "started", "pid": process.pid}
 
 
 class KeycloakTokenVerifier(TokenVerifier):
@@ -150,10 +183,10 @@ _TOPOLOGY = {
         {"name": "AUSF Agent",           "port": 8001, "skills": ["auth"],                                 "role": "Agent-AKA authentication with automated low-trust recovery"},
         {"name": "Subscriber Agent",     "port": 8002, "skills": ["qos", "session"],                      "role": "QoS lookup and session management"},
         {"name": "UDM Agent",            "port": 8003, "skills": ["sub-data", "auth-vectors", "ue-profile", "af-profile", "reverify-sub"], "role": "Unified Data Management"},
-        {"name": "Security Agent",       "port": 8005, "skills": ["trust", "re-evaluate"],                "role": "Trust scoring and risk assessment"},
-        {"name": "Notification Agent",   "port": 8006, "skills": ["card-notify"],                         "role": "Forwards Agent Card changes to supervisor"},
+        {"name": "Security Agent",       "port": 8105, "skills": ["trust", "re-evaluate"],                "role": "Trust scoring and risk assessment"},
+        {"name": "Notification Agent",   "port": 8106, "skills": ["card-notify"],                         "role": "Forwards Agent Card changes to supervisor"},
         {"name": "UE Agent 001",         "port": 8004, "skills": ["attach", "service-request", "peer-message", "ue-profile-local"], "role": "User Equipment agent instance"},
-        {"name": "UE Agent 002",         "port": 8007, "skills": ["attach", "service-request", "peer-message", "ue-profile-local"], "role": "User Equipment agent instance"},
+        {"name": "UE Agent 002",         "port": 8107, "skills": ["attach", "service-request", "peer-message", "ue-profile-local"], "role": "User Equipment agent instance"},
         {"name": "FastMCP Gateway",      "port": 8010, "skills": ["mcp-tools"],                           "role": "LLM-facing MCP tool gateway (this server)"},
     ],
     "transport": "Streamable HTTP",
@@ -237,6 +270,34 @@ async def _get_ue_base_url(agent_id: str) -> str | None:
         return None
 
 
+def _skill_matches_task(task: str, skill_id: str) -> bool:
+    """Check that the requested job describes the advertised robot skill."""
+    task_words = set(re.findall(r"[a-z0-9]+", task.lower()))
+    normalized_skill = skill_id.lower().replace("-", "_")
+    decisive_keywords = {
+        "pick_and_place": {"move", "pick", "place", "transfer", "transport", "deliver"},
+        "crush": {"crush", "crushing", "compress"},
+        "welding": {"weld", "welding"},
+        "inspection": {"inspect", "inspection", "check"},
+        "packaging": {"packaging", "pack"},
+    }
+    detected_skills = {
+        skill for skill, keywords in decisive_keywords.items() if task_words & keywords
+    }
+    if detected_skills and normalized_skill not in detected_skills:
+        return False
+    skill_keywords = {
+        "pick_and_place": {"move", "pick", "place", "package", "station", "transfer", "transport", "deliver"},
+        "crush": {"crush", "crushing", "compress"},
+        "welding": {"weld", "welding"},
+        "inspection": {"inspect", "inspection", "check"},
+    }
+    keywords = skill_keywords.get(normalized_skill)
+    if keywords is None:
+        keywords = set(normalized_skill.split("_"))
+    return bool(task_words & keywords)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # MCP TOOLS
 # ═══════════════════════════════════════════════════════════════════════════
@@ -288,8 +349,15 @@ async def register(
     response = await _safe_call(_client.register(card), "registry")
     if not response.get("success", True) and "error" in response:
         return response
+    endpoint_status = await _provision_robot_endpoint(card)
     session = await _record_session(agent_id.strip(), "register", {"agent_card": card})
-    return {"success": True, "agent_id": agent_id.strip(), "agent": _sanitize_card(card), "session": _sanitize_session(session)}
+    return {
+        "success": True,
+        "agent_id": agent_id.strip(),
+        "agent": _sanitize_card(card),
+        "endpoint": endpoint_status,
+        "session": _sanitize_session(session),
+    }
 
 
 @mcp.tool(
@@ -368,6 +436,9 @@ async def assign_task(
             )
             if not candidate_id or matching_skill is None:
                 continue
+            skill_id = matching_skill.get("id") if isinstance(matching_skill, dict) else matching_skill
+            if not _skill_matches_task(task, skill_id):
+                continue
             try:
                 capacity = float((candidate.get("metadata") or {}).get("max_payload_kg", 0))
             except (TypeError, ValueError):
@@ -375,7 +446,6 @@ async def assign_task(
             if payload_kg <= capacity:
                 current_tasks = await database.db.tasks.find({"agent_id": candidate_id}).to_list(length=1000)
                 load = sum(item.get("status") in {"active", "queued"} for item in current_tasks)
-                skill_id = matching_skill.get("id") if isinstance(matching_skill, dict) else matching_skill
                 task_text = task.lower()
                 suitability = 0 if requested_skill else (0 if skill_id == "pick_and_place" and any(word in task_text for word in ("move", "package", "station")) else 1)
                 candidates.append((suitability, load, candidate_id, candidate, matching_skill))
@@ -392,6 +462,11 @@ async def assign_task(
     )
     if selected_skill is None:
         return _error(f"Agent '{selected_agent_id}' does not advertise skill '{requested_skill}'", "validation")
+    if not _skill_matches_task(task, requested_skill):
+        return _error(
+            f"Task '{task.strip()}' does not match agent skill '{requested_skill}'",
+            "validation",
+        )
     metadata = card.get("metadata") or {}
     try:
         capacity = float(metadata.get("max_payload_kg", 0))

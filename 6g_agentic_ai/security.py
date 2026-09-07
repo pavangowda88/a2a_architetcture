@@ -2,6 +2,8 @@
 Security Agent — trust and risk assessment.
 """
 
+import os
+
 from fastapi import FastAPI, APIRouter, Header, Request
 from shared.models import AgentCard, AgentSkill
 from shared.oauth import require_oauth_scope
@@ -17,7 +19,7 @@ client = A2AClient("security-agent", settings.client_credentials("security-agent
 SEC_CARD = AgentCard(
     name="Security Agent",
     description="Trust and Risk Assessment",
-    url=f"{settings.BASE_URI}:8005",
+    url=f"{settings.BASE_URI}:{os.getenv('SECURITY_PORT', '8105')}",
     skills=[
         AgentSkill(
             id="trust",

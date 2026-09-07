@@ -9,14 +9,14 @@ The services are started by `run_all.py` in this order:
 | Service | Module | Port | Purpose |
 | --- | --- | ---: | --- |
 | Registry | `registry.py` | 9001 | Agent card registration and discovery |
-| Notification Agent | `notification_agent.py` | 8006 | Agent card change notifications |
+| Notification Agent | `notification_agent.py` | 8106 | Agent card change notifications |
 | Supervisor Agent | `supervisor.py` | 8000 | Orchestrates network workflows |
 | AUSF Agent | `ausf.py` | 8001 | UE authentication |
 | Subscriber Agent | `subscriber.py` | 8002 | QoS and session management |
 | UDM Agent | `udm.py` | 8003 | Subscriber and UE data |
-| Security Agent | `security.py` | 8005 | Trust and risk evaluation |
+| Security Agent | `security.py` | 8105 | Trust and risk evaluation |
 | UE Agent 001 | `ue.py` | 8004 | UE `ue_agent_001` |
-| UE Agent 002 | `ue.py` | 8007 | UE `ue_agent_002` |
+| UE Agent 002 | `ue.py` | 8107 | UE `ue_agent_002` |
 | FastMCP Gateway | `mcp_server.py` | 8010 | MCP tools over Streamable HTTP |
 
 Important endpoints:

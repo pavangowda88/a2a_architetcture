@@ -26,8 +26,8 @@ SERVICES = [
     },
     {
         "name": "2. Notification Agent",
-        "cmd": [sys.executable, "-m", "uvicorn", "notification_agent:app", "--host", "0.0.0.0", "--port", "8006"],
-        "port": 8006,
+        "cmd": [sys.executable, "-m", "uvicorn", "notification_agent:app", "--host", "0.0.0.0", "--port", "8106"],
+        "port": 8106,
         "env": os.environ.copy(),
         "delay": 1,
     },
@@ -61,8 +61,8 @@ SERVICES = [
     },
     {
         "name": "7. Security Agent",
-        "cmd": [sys.executable, "-m", "uvicorn", "security:app", "--host", "0.0.0.0", "--port", "8005"],
-        "port": 8005,
+        "cmd": [sys.executable, "-m", "uvicorn", "security:app", "--host", "0.0.0.0", "--port", "8105"],
+        "port": 8105,
         "env": os.environ.copy(),
         "delay": 1,
     },
@@ -82,13 +82,13 @@ SERVICES = [
     },
     {
         "name": "9. UE Agent 002",
-        "cmd": [sys.executable, "-m", "uvicorn", "ue:app", "--host", "0.0.0.0", "--port", "8007"],
-        "port": 8007,
+        "cmd": [sys.executable, "-m", "uvicorn", "ue:app", "--host", "0.0.0.0", "--port", "8107"],
+        "port": 8107,
         "env": {
             **os.environ,
             "UE_AGENT_ID": "ue_agent_002",
             "UE_AGENT_NAME": "UE Agent 002",
-            "UE_PORT": "8007",
+            "UE_PORT": "8107",
             "UE_IMSI": "001010000000001",
             "UE_IMEI": "356938035643809",
         },

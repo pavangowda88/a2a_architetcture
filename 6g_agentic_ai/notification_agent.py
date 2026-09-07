@@ -3,6 +3,8 @@ Notification Agent — receives agent card / skill changes and forwards to Super
 Supervisor will login, verify, then update the registry.
 """
 
+import os
+
 from fastapi import FastAPI, APIRouter, Request, HTTPException
 from shared.models import AgentCard, AgentSkill
 from shared.oauth import require_oauth_scope
@@ -16,7 +18,7 @@ client = A2AClient("notification-agent", settings.client_credentials("notificati
 NOTIF_CARD = AgentCard(
     name="Notification Agent",
     description="Notifies supervisor when an agent card or skills change",
-    url=f"{settings.BASE_URI}:8006",
+    url=f"{settings.BASE_URI}:{os.getenv('NOTIFICATION_PORT', '8106')}",
     skills=[
         AgentSkill(
             id="card-notify",

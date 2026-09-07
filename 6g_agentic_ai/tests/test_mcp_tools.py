@@ -44,6 +44,7 @@ from mcp_server import (
     end_task_session,
     end_all_task_sessions,
 )
+import mcp_server
 
 
 @pytest.mark.asyncio
@@ -158,6 +159,74 @@ async def test_assign_task_selects_least_loaded_capable_robot():
             )
         assert result["success"] is True
         assert result["agent_id"] == "robot-a"
+    finally:
+        database.db = previous_db
+
+
+@pytest.mark.asyncio
+async def test_assign_task_rejects_job_that_does_not_match_selected_skill():
+    previous_db = database.db
+    database.db = database.InMemoryDatabase()
+    card = {
+        "id": "robot-a",
+        "url": "http://robot-a",
+        "skills": [{"id": "pick_and_place", "endpoint": "/task"}],
+        "metadata": {"max_payload_kg": 5},
+    }
+    try:
+        with patch.object(_client, "find_agent_by_id", new_callable=AsyncMock, return_value=card):
+            result = await assign_task_tool(
+                agent_id="robot-a",
+                skill="pick_and_place",
+                task="Crush package A11",
+            )
+        assert result["success"] is False
+        assert result["stage"] == "validation"
+        assert "does not match" in result["error"]
+    finally:
+        database.db = previous_db
+
+
+@pytest.mark.asyncio
+async def test_assign_task_auto_selection_requires_matching_skill():
+    previous_db = database.db
+    database.db = database.InMemoryDatabase()
+    cards = [
+        {"id": "picker", "url": "http://picker", "skills": [{"id": "pick_and_place", "endpoint": "/task"}], "metadata": {"max_payload_kg": 5}},
+        {"id": "crusher", "url": "http://crusher", "skills": [{"id": "crush", "endpoint": "/task"}], "metadata": {"max_payload_kg": 5}},
+    ]
+    try:
+        with patch.object(_client, "list_agents", new_callable=AsyncMock, return_value=cards), \
+             patch.object(_client, "send_raw", new_callable=AsyncMock, return_value={"result": {"accepted": True}}):
+            result = await assign_task_tool(task="Crush package A11", payload_kg=1)
+        assert result["success"] is True
+        assert result["agent_id"] == "crusher"
+    finally:
+        database.db = previous_db
+
+
+@pytest.mark.asyncio
+async def test_register_reports_started_robot_task_endpoint():
+    previous_db = database.db
+    database.db = database.InMemoryDatabase()
+    card_response = {"success": True}
+    try:
+        with patch.object(_client, "register", new_callable=AsyncMock, return_value=card_response), \
+             patch.object(mcp_server, "_provision_robot_endpoint", new_callable=AsyncMock, return_value={"status": "started", "pid": 1234}), \
+             patch.object(mcp_server, "_record_session", new_callable=AsyncMock, return_value={"status": "active"}):
+            result = await mcp_server.register(
+                agent_id="robot-weld-test",
+                agent_name="Welding Test Robot",
+                agent_type="welding_arm",
+                imsi="001010000000199",
+                imei="356938035643999",
+                endpoint="http://localhost:8123",
+                skills=["welding"],
+                services=["manufacturing_slice"],
+                metadata={"max_payload_kg": 15},
+            )
+        assert result["success"] is True
+        assert result["endpoint"]["status"] == "started"
     finally:
         database.db = previous_db
 

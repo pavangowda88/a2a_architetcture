@@ -39,7 +39,7 @@ class Settings:
 
     @property
     def NOTIFICATION_URL(self):
-        return f"{self.BASE_URI}:8006"
+        return f"{self.BASE_URI}:{os.getenv('NOTIFICATION_PORT', '8106')}"
 
 
 settings = Settings()

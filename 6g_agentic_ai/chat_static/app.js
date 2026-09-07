@@ -5,6 +5,38 @@ const input = $('#messageInput');
 
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char])); }
 function json(value) { return escapeHtml(JSON.stringify(value ?? {}, null, 2)); }
+function markdown(value) {
+  const lines = escapeHtml(value).replace(/\r\n?/g, '\n').split('\n');
+  let html = '';
+  let inCode = false;
+  let code = [];
+  let inList = false;
+  const inline = (line) => line
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/_([^_]+)_/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+  lines.forEach((line) => {
+    if (line.trim().startsWith('```')) {
+      if (inCode) { html += `<pre><code>${code.join('\n')}</code></pre>`; code = []; inCode = false; }
+      else { closeList(); inCode = true; }
+      return;
+    }
+    if (inCode) { code.push(line); return; }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    if (heading) { closeList(); html += `<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`; return; }
+    if (bullet) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${inline(bullet[1])}</li>`; return; }
+    closeList();
+    if (line.trim()) html += `<p>${inline(line)}</p>`;
+  });
+  if (inCode) html += `<pre><code>${code.join('\n')}</code></pre>`;
+  closeList();
+  return html || '<p></p>';
+}
 function saveHistory() {
   const history = JSON.parse(localStorage.getItem('mcp-chat-history') || '[]').filter((item) => item.id !== state.id);
   history.unshift({ id: state.id, title: state.messages.find((item) => item.role === 'user')?.text || 'New conversation' });
@@ -20,7 +52,7 @@ function addMessage(role, text, steps = []) {
   state.messages.push({ role, text });
   const item = document.createElement('article');
   item.className = `message ${role}`;
-  item.innerHTML = `<div class="message-bubble">${escapeHtml(text)}</div>`;
+  item.innerHTML = `<div class="message-bubble${role === 'assistant' ? ' markdown' : ''}">${role === 'assistant' ? markdown(text) : escapeHtml(text)}</div>`;
   steps.forEach((step) => {
     const status = step.status === 'completed' ? '✓ Completed' : step.status === 'error' ? 'Failed' : step.status === 'confirmation' ? 'Needs confirmation' : 'Waiting';
     const details = state.developer || step.status === 'completed' || step.status === 'error';

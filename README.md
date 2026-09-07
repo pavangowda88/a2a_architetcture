@@ -183,6 +183,38 @@ Leave this PowerShell window running. Press `Ctrl+C` to stop every service start
 python mcp_server.py
 ```
 
+7. In another PowerShell window, start the browser chat client:
+
+```powershell
+python chat_app.py
+```
+
+Open `http://127.0.0.1:8020`. The chat client discovers the tools from the
+existing MCP gateway at `http://localhost:8010/mcp`, authenticates that
+connection with the existing `mcp-server` OAuth client credentials, and calls
+tools through Streamable HTTP. Set `MCP_URL` or `CHAT_PORT` when running the
+services on different local addresses or ports.
+
+The chat client can use an external OpenAI-compatible LLM for natural-language
+planning and MCP tool calling. If no LLM key is configured, it falls back to
+live MCP tool names, descriptions, and input schemas for lightweight local
+tool selection. No tools are duplicated in the chat service.
+
+To enable an external OpenAI-compatible LLM, set these local `.env` values:
+
+```dotenv
+LLM_API_KEY=<provider-api-key>
+LLM_API_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+LLM_MAX_TOOL_ROUNDS=8
+```
+
+The backend sends the live MCP tool schemas to the model, executes approved
+tool calls through the existing OAuth-authenticated gateway, and sends results
+back to the model for a final answer. The API key stays server-side and is
+never exposed to browser code, MCP calls, URLs, or chat history. Leaving
+`LLM_API_KEY` empty keeps the local schema-based fallback enabled.
+
 The launcher does not start the MCP gateway automatically. Confirm the registry before connecting VS Code:
 
 ```powershell

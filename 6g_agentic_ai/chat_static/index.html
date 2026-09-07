@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>6G MCP Chat</title>
+  <link rel="stylesheet" href="/chat_static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Conversations">
+      <div class="brand"><span class="brand-mark">6G</span><span>MCP Chat</span></div>
+      <button class="new-chat" id="newChat"><span>+</span> New chat</button>
+      <div class="side-label">Conversations</div>
+      <div class="history" id="history"></div>
+      <div class="sidebar-footer"><span class="pulse"></span><span id="sideStatus">Connecting</span></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div class="server-title"><span class="eyebrow">Workspace</span><strong>6G Core Network</strong></div>
+        <div class="top-actions">
+          <span class="connection"><span class="status-dot" id="statusDot"></span><span id="connectionText">Checking MCP</span></span>
+          <button class="icon-button" id="developerToggle" title="Toggle developer mode" aria-label="Toggle developer mode">&lt;/&gt;</button>
+          <button class="icon-button" id="settingsButton" title="Connection details" aria-label="Connection details">⚙</button>
+          <button class="clear-button" id="clearChat">Clear chat</button>
+        </div>
+      </header>
+
+      <section class="conversation" id="conversation" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="welcome-orbit"><span>6G</span></div>
+          <p class="eyebrow">MCP tool runner</p>
+          <h1>What should I run?</h1>
+          <p class="welcome-copy">Ask in plain language. I’ll select from the connected network tools and keep each execution visible.</p>
+          <div class="suggestions" id="suggestions"></div>
+        </div>
+      </section>
+
+      <div class="composer-wrap">
+        <div class="thinking" id="thinking" hidden><span class="thinking-dots"><i></i><i></i><i></i></span><span id="thinkingText">Selecting a tool</span></div>
+        <form class="composer" id="composer">
+          <textarea id="messageInput" rows="1" placeholder="Ask anything about the 6G network..." aria-label="Message"></textarea>
+          <div class="composer-bar"><span>Enter to send · Shift + Enter for a new line</span><button class="send-button" id="sendButton" type="submit" aria-label="Send message">↑</button></div>
+        </form>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="settingsDialog">
+    <div class="dialog-head"><div><span class="eyebrow">Connection</span><h2>MCP connection</h2></div><button class="close-button" id="closeSettings" aria-label="Close">×</button></div>
+    <div class="connection-panel"><span class="status-dot" id="dialogDot"></span><div><strong id="dialogStatus">Checking connection</strong><small>Single server · OAuth protected</small></div></div>
+    <div class="detail-row"><span>Server</span><code>6G-Core-Network</code></div>
+    <div class="detail-row"><span>Capabilities</span><code id="toolCount">Discovering tools</code></div>
+    <div class="detail-row"><span>LLM planner</span><code id="llmStatus">Checking</code></div>
+    <p class="dialog-note">Credentials stay on the server and are never written to chat history or tool details.</p>
+  </dialog>
+  <script src="/chat_static/app.js"></script>
+</body>
+</html>

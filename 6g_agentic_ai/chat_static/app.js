@@ -1,0 +1,59 @@
+const state = { id: crypto.randomUUID(), messages: [], tools: [], developer: false, controller: null };
+const $ = (selector) => document.querySelector(selector);
+const conversation = $('#conversation');
+const input = $('#messageInput');
+
+function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char])); }
+function json(value) { return escapeHtml(JSON.stringify(value ?? {}, null, 2)); }
+function saveHistory() {
+  const history = JSON.parse(localStorage.getItem('mcp-chat-history') || '[]').filter((item) => item.id !== state.id);
+  history.unshift({ id: state.id, title: state.messages.find((item) => item.role === 'user')?.text || 'New conversation' });
+  localStorage.setItem('mcp-chat-history', JSON.stringify(history.slice(0, 12)));
+  renderHistory();
+}
+function renderHistory() {
+  const history = JSON.parse(localStorage.getItem('mcp-chat-history') || '[]');
+  $('#history').innerHTML = history.map((item) => `<button class="${item.id === state.id ? 'active' : ''}" data-id="${item.id}">${escapeHtml(item.title)}</button>`).join('');
+}
+function addMessage(role, text, steps = []) {
+  $('#welcome').hidden = true;
+  state.messages.push({ role, text });
+  const item = document.createElement('article');
+  item.className = `message ${role}`;
+  item.innerHTML = `<div class="message-bubble">${escapeHtml(text)}</div>`;
+  steps.forEach((step) => {
+    const status = step.status === 'completed' ? '✓ Completed' : step.status === 'error' ? 'Failed' : step.status === 'confirmation' ? 'Needs confirmation' : 'Waiting';
+    const details = state.developer || step.status === 'completed' || step.status === 'error';
+    item.innerHTML += `<details class="tool-card" ${details ? '' : ''}><summary class="tool-summary"><span class="tool-icon">${step.status === 'completed' ? '✓' : '⚙'}</span><strong>${escapeHtml(step.tool)}</strong><span class="tool-status">${status}${step.duration_ms ? ` · ${step.duration_ms}ms` : ''}</span></summary><div class="tool-body"><div class="json-block"><label>Input</label><pre>${json(step.input)}</pre></div>${step.output !== undefined ? `<div class="json-block"><label>Output</label><pre>${json(step.output)}</pre></div>` : step.error ? `<div class="json-block"><label>Error</label><pre>${escapeHtml(step.error)}</pre></div>` : ''}</div></details>`;
+  });
+  conversation.appendChild(item); conversation.scrollTop = conversation.scrollHeight;
+}
+function setThinking(active, text = 'Selecting a tool') { $('#thinking').hidden = !active; $('#thinkingText').textContent = text; $('#sendButton').disabled = false; $('#sendButton').textContent = active ? '■' : '↑'; $('#sendButton').setAttribute('aria-label', active ? 'Stop execution' : 'Send message'); }
+function resizeInput() { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 160)}px`; }
+async function send(text) {
+  if (!text.trim() || state.controller) return;
+  addMessage('user', text.trim()); saveHistory(); input.value = ''; resizeInput(); setThinking(true, 'Discovering tools');
+  state.controller = new AbortController();
+  try {
+    setTimeout(() => { if (state.controller) $('#thinkingText').textContent = 'Running MCP capability'; }, 350);
+    const response = await fetch('/api/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ conversation_id: state.id, message: text.trim(), developer_mode: state.developer }), signal: state.controller.signal });
+    const data = await response.json(); if (!response.ok) throw new Error(data.detail || 'Request failed');
+    addMessage('assistant', data.reply, data.steps || []);
+  } catch (error) { if (error.name !== 'AbortError') addMessage('assistant', `I couldn't reach the MCP runner: ${error.message}`); }
+  finally { state.controller = null; setThinking(false); }
+}
+async function loadStatus() {
+  try {
+    const response = await fetch('/api/status'); const data = await response.json(); state.tools = data.tools || [];
+    $('#connectionText').textContent = data.connected ? `MCP Connected · ${data.tool_count} tools` : 'MCP Offline'; $('#sideStatus').textContent = data.connected ? 'MCP Connected' : 'MCP Offline'; $('#statusDot').classList.toggle('on', data.connected); $('#dialogDot').classList.toggle('on', data.connected); $('#dialogStatus').textContent = data.connected ? 'Connected' : 'Unavailable'; $('#toolCount').textContent = `${data.tool_count} discovered tools`; $('#llmStatus').textContent = data.llm_enabled ? data.llm_model : 'Local fallback';
+    $('#suggestions').innerHTML = state.tools.slice(0, 4).map((tool) => `<button class="suggestion" data-prompt="${escapeHtml(tool.description || tool.name)}">${escapeHtml(tool.description || tool.name)}</button>`).join('');
+  } catch { $('#connectionText').textContent = 'MCP Offline'; $('#sideStatus').textContent = 'MCP Offline'; }
+}
+$('#composer').addEventListener('submit', (event) => { event.preventDefault(); send(input.value); });
+$('#sendButton').addEventListener('click', (event) => { if (state.controller) { event.preventDefault(); state.controller.abort(); state.controller = null; setThinking(false); } });
+input.addEventListener('input', resizeInput); input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey || !event.shiftKey)) { event.preventDefault(); send(input.value); } });
+document.addEventListener('click', (event) => { const suggestion = event.target.closest('[data-prompt]'); if (suggestion) { input.value = suggestion.dataset.prompt; resizeInput(); input.focus(); } });
+$('#newChat').addEventListener('click', () => { location.reload(); }); $('#clearChat').addEventListener('click', () => { state.messages = []; conversation.innerHTML = ''; conversation.appendChild($('#welcome')); $('#welcome').hidden = false; });
+$('#developerToggle').addEventListener('click', (event) => { state.developer = !state.developer; event.currentTarget.classList.toggle('active', state.developer); });
+$('#settingsButton').addEventListener('click', () => $('#settingsDialog').showModal()); $('#closeSettings').addEventListener('click', () => $('#settingsDialog').close());
+renderHistory(); loadStatus();

@@ -222,6 +222,11 @@ class InMemoryDatabase:
         self.ue_profiles = InMemoryCollection("ue_profiles")
         self.af_profiles = InMemoryCollection("af_profiles")
         self.agent_messages = InMemoryCollection("agent_messages")
+        self.tasks = InMemoryCollection("tasks")
+        self.mcp_sessions = InMemoryCollection("mcp_sessions")
+        self.mcp_tools = InMemoryCollection("mcp_tools")
+        self.oauth_clients = InMemoryCollection("oauth_clients")
+        self.oauth_tokens = InMemoryCollection("oauth_tokens")
 
 
 async def init_db():

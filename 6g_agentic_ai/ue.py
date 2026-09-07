@@ -25,6 +25,7 @@ DIRECT_REGISTRATION = os.getenv("UE_DIRECT_REGISTRATION", "true").lower() == "tr
 router = APIRouter()
 client = A2AClient(AGENT_ID.replace("_", "-"), settings.client_credentials(AGENT_ID.replace("_", "-"))[1])
 current_session: str | None = None
+MAX_PAYLOAD_KG = 10.0
 
 ue_profile = UEAgentProfile()
 ue_profile.agentIdentity.agentId = AGENT_ID.replace("ue_agent_", "UE-Agent-")
@@ -101,6 +102,8 @@ async def request_service(request: Request):
 async def receive_message(request: Request, authorization: str | None = Header(default=None), x_agent_id: str | None = Header(default=None)):
     """Authenticated A2A receiver endpoint for a peer UE's JSON-RPC message."""
     await require_oauth_scope(request, "agent:write")
+    if database.db is None:
+        await init_db()
     body = await request.json()
     params = json_params(body)
     message = {
@@ -113,6 +116,97 @@ async def receive_message(request: Request, authorization: str | None = Header(d
     }
     await database.db.agent_messages.insert_one(message)
     return {"jsonrpc": "2.0", "result": {"accepted": True, "message_id": message["message_id"]}, "id": body.get("id")}
+
+
+@router.post("/task")
+async def assign_task(request: Request):
+    """Accept a pick-and-place task forwarded by the MCP gateway."""
+    await require_oauth_scope(request, "agent:write")
+    if database.db is None:
+        await init_db()
+    body = await request.json()
+    params = json_params(body)
+    payload_kg = params.get("payload_kg", 0)
+    task_id = params.get("task_id") or str(uuid.uuid4())
+    task_session_id = params.get("session_id") or str(uuid.uuid4())
+    created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    if params.get("skill") != "pick_and_place":
+        await database.db.tasks.update_one({"task_id": task_id}, {"$set": {
+            "task_id": task_id,
+            "session_id": task_session_id,
+            "agent_id": params.get("agent_id", AGENT_ID),
+            "skill": params.get("skill"),
+            "task": params.get("task", ""),
+            "payload_kg": payload_kg,
+            "payload": params.get("payload", {}),
+            "status": "rejected",
+            "reason": "Unsupported skill",
+            "created_at": created_at,
+        }}, upsert=True)
+        return {
+            "jsonrpc": "2.0",
+            "error": {"code": 400, "message": "Unsupported skill"},
+            "id": body.get("id"),
+        }
+    try:
+        payload_kg = float(payload_kg)
+    except (TypeError, ValueError):
+        return {
+            "jsonrpc": "2.0",
+            "error": {"code": 400, "message": "payload_kg must be a number"},
+            "id": body.get("id"),
+        }
+    if payload_kg < 0 or payload_kg > MAX_PAYLOAD_KG:
+        await database.db.tasks.update_one({"task_id": task_id}, {"$set": {
+            "task_id": task_id,
+            "session_id": task_session_id,
+            "agent_id": params.get("agent_id", AGENT_ID),
+            "skill": params.get("skill"),
+            "task": params.get("task", ""),
+            "payload_kg": payload_kg,
+            "payload": params.get("payload", {}),
+            "status": "rejected",
+            "reason": "Payload exceeds capacity or is negative",
+            "created_at": created_at,
+        }}, upsert=True)
+        return {
+            "jsonrpc": "2.0",
+            "error": {"code": 400, "message": f"payload_kg must be between 0 and {MAX_PAYLOAD_KG:g}"},
+            "id": body.get("id"),
+        }
+
+    active_tasks = await database.db.tasks.find({"agent_id": params.get("agent_id", AGENT_ID)}).to_list(length=1000)
+    has_active_task = any(item.get("status") == "active" for item in active_tasks)
+    task = {
+        "task_id": task_id,
+        "session_id": task_session_id,
+        "agent_id": params.get("agent_id", AGENT_ID),
+        "skill": params["skill"],
+        "task": params.get("task", ""),
+        "payload_kg": payload_kg,
+        "payload": params.get("payload", {}),
+        "locations": params.get("locations", {}),
+        "status": "queued" if has_active_task else "active",
+        "created_at": created_at,
+    }
+    await database.db.tasks.update_one({"task_id": task_id}, {"$set": task}, upsert=True)
+    return {
+        "jsonrpc": "2.0",
+        "result": {
+            "accepted": True,
+            "task_id": task_id,
+            "session_id": task_session_id,
+            "agent_id": params.get("agent_id", AGENT_ID),
+            "skill": params["skill"],
+            "task": params.get("task", ""),
+            "payload_kg": payload_kg,
+            "payload": task["payload"],
+            "locations": task["locations"],
+            "status": task["status"],
+        },
+        "id": body.get("id"),
+    }
 
 
 @router.post("/send-message")
@@ -158,10 +252,23 @@ async def broadcast(request: Request):
 @router.get("/inbox")
 async def inbox(request: Request):
     await require_oauth_scope(request, "agent:read")
+    if database.db is None:
+        await init_db()
     messages = await database.db.agent_messages.find({"recipient": AGENT_ID}).to_list(length=100)
     for message in messages:
         message.pop("_id", None)
-    return {"jsonrpc": "2.0", "result": messages, "id": "inbox"}
+    tasks = await database.db.tasks.find({"agent_id": AGENT_ID}).to_list(length=100)
+    inbox_items = messages + [
+        {
+            **task,
+            "type": "task",
+            "recipient": AGENT_ID,
+        }
+        for task in tasks
+    ]
+    for item in inbox_items:
+        item.pop("_id", None)
+    return {"jsonrpc": "2.0", "result": inbox_items, "id": "inbox"}
 
 
 @router.get("/profile")

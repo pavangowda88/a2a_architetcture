@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -12,6 +14,51 @@ from fastapi import HTTPException, Request
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _token_fingerprint(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def _record_oauth_client(client_id: str) -> None:
+    import database
+
+    if database.db is None:
+        await database.init_db()
+    await database.db.oauth_clients.update_one(
+        {"client_id": client_id},
+        {
+            "$set": {
+                "client_id": client_id,
+                "issuer_url": settings.OAUTH_ISSUER_URL,
+                "token_url": settings.OAUTH_TOKEN_URL,
+                "introspection_url": settings.OAUTH_INTROSPECTION_URL,
+                "scopes": settings.OAUTH_SCOPES,
+                "secret_configured": bool(settings.client_credentials(client_id)[1]),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+        upsert=True,
+    )
+
+
+async def _record_oauth_token(token: str, client_id: str, **fields: Any) -> None:
+    import database
+
+    if database.db is None:
+        await database.init_db()
+    await database.db.oauth_tokens.update_one(
+        {"token_hash": _token_fingerprint(token)},
+        {
+            "$set": {
+                "token_hash": _token_fingerprint(token),
+                "client_id": client_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                **fields,
+            }
+        },
+        upsert=True,
+    )
 
 
 async def introspect_access_token(token: str) -> dict[str, Any]:
@@ -44,6 +91,18 @@ async def introspect_access_token(token: str) -> dict[str, Any]:
         claims.get("scope"),
         claims.get("exp"),
         claims.get("client_id", claims.get("azp")),
+    )
+
+    await _record_oauth_client(settings.RESOURCE_CLIENT_ID)
+    await _record_oauth_token(
+        token,
+        str(claims.get("client_id", claims.get("azp", "unknown"))),
+        active=bool(claims.get("active")),
+        issuer=claims.get("iss"),
+        subject=claims.get("sub"),
+        scope=claims.get("scope"),
+        expires_at=claims.get("exp"),
+        token_type="incoming",
     )
 
     if not claims.get("active"):
@@ -103,7 +162,14 @@ class OAuthClient:
         self._token_expiry = 0.0
 
     async def get_access_token(self) -> str:
+        await _record_oauth_client(self.client_id)
         if self._token and time.time() < self._token_expiry - 60:
+            await _record_oauth_token(
+                self._token,
+                self.client_id,
+                expires_at=self._token_expiry,
+                token_type="client_credentials",
+            )
             return self._token
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -120,4 +186,10 @@ class OAuthClient:
 
         self._token = data["access_token"]
         self._token_expiry = time.time() + int(data.get("expires_in", 300))
+        await _record_oauth_token(
+            self._token,
+            self.client_id,
+            expires_at=self._token_expiry,
+            token_type="client_credentials",
+        )
         return self._token

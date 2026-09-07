@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -26,6 +28,7 @@ from pydantic import AnyHttpUrl
 from shared.a2a_client import A2AClient
 from shared.config import settings
 from shared.oauth import introspect_access_token
+import database
 
 logging.basicConfig(
     filename="mcp_server.log",
@@ -127,8 +130,8 @@ mcp = FastMCP(
     name="6G-Core-Network",
     instructions=(
         "MCP gateway for a 6G Agentic AI Core Network. "
-        "Tools let you attach UEs, request services, send messages, "
-        "query the agent registry, and run supervisor workflows. "
+        "Tools let you register and authenticate robots, assign validated tasks, "
+        "discover robots by skill, inspect inboxes, and query active sessions. "
         "All operations are orchestrated through the Supervisor agent."
     ),
     auth=mcp_auth,
@@ -182,6 +185,32 @@ def _error(message: str, stage: str = "unknown") -> dict:
     return {"success": False, "error": message, "stage": stage}
 
 
+def _internal_tool(*args, **kwargs):
+    def decorator(func):
+        return func
+    return decorator
+
+
+_mcp_sessions: list[dict] = []
+
+
+async def _record_session(agent_id: str, operation: str, details: dict, status: str = "active") -> dict:
+    session = {
+        "session_id": str(uuid.uuid4()),
+        "agent_id": agent_id,
+        "operation": operation,
+        "details": details,
+        "status": status,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _mcp_sessions.append(session)
+    if database.db is None:
+        await database.init_db()
+    await database.db.mcp_sessions.insert_one(dict(session))
+    return session
+
+
 async def _safe_call(coro, stage: str) -> dict:
     """Execute an async A2A call with uniform error handling."""
     try:
@@ -213,6 +242,311 @@ async def _get_ue_base_url(agent_id: str) -> str | None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @mcp.tool(
+    name="register",
+    description="Register or update an industrial robot Agent Card in the Registry.",
+)
+async def register(
+    agent_id: str,
+    agent_name: str,
+    agent_type: str,
+    imsi: str,
+    imei: str,
+    endpoint: str,
+    skills: list[str],
+    services: list[str],
+    metadata: dict | None = None,
+) -> dict:
+    if not agent_id.strip() or not agent_name.strip() or not endpoint.strip():
+        return _error("agent_id, agent_name, and endpoint are required", "validation")
+    if not skills:
+        return _error("at least one skill is required", "validation")
+
+    normalized_skills = [
+        {
+            "id": skill.strip(),
+            "name": skill.strip().replace("_", " ").title(),
+            "description": f"Robot skill: {skill.strip()}",
+            "endpoint": "/task",
+        }
+        for skill in skills
+        if isinstance(skill, str) and skill.strip()
+    ]
+    if not normalized_skills:
+        return _error("skills must contain non-empty strings", "validation")
+
+    card = {
+        "id": agent_id.strip(),
+        "name": agent_name.strip(),
+        "description": f"Industrial robot agent: {agent_name.strip()}",
+        "url": endpoint.strip().rstrip("/"),
+        "skills": normalized_skills,
+        "services": [service.strip() for service in services if isinstance(service, str) and service.strip()],
+        "imsi": imsi.strip(),
+        "imei": imei.strip(),
+        "metadata": {"agent_type": agent_type.strip(), **(metadata or {})},
+    }
+    response = await _safe_call(_client.register(card), "registry")
+    if not response.get("success", True) and "error" in response:
+        return response
+    session = await _record_session(agent_id.strip(), "register", {"agent_card": card})
+    return {"success": True, "agent_id": agent_id.strip(), "agent": _sanitize_card(card), "session": _sanitize_session(session)}
+
+
+@mcp.tool(
+    name="authenticate",
+    description="Authenticate a registered robot using its assigned Agent ID and subscriber identity.",
+)
+async def authenticate(
+    agent_id: str,
+    imsi: str = "",
+    imei: str = "",
+    simulate_low_trust: bool = False,
+) -> dict:
+    if not agent_id.strip():
+        return _error("agent_id is required", "validation")
+    try:
+        card = await _client.find_agent_by_id(agent_id.strip())
+    except Exception as exc:
+        return _error(str(exc), "registry")
+
+    metadata = card.get("metadata") or {}
+    auth_result = await attach_ue(
+        imsi=(imsi or card.get("imsi") or metadata.get("imsi") or "").strip(),
+        imei=(imei or card.get("imei") or metadata.get("imei") or "").strip(),
+        simulate_low_trust=simulate_low_trust,
+    )
+    if not auth_result.get("success"):
+        await _record_session(agent_id.strip(), "authenticate", {"result": auth_result}, "failed")
+        return {"agent_id": agent_id.strip(), **auth_result}
+    session = await _record_session(agent_id.strip(), "authenticate", {"result": auth_result})
+    return {"success": True, "agent_id": agent_id.strip(), "authenticated": auth_result.get("authenticated", False), "result": auth_result, "session": _sanitize_session(session)}
+
+
+@mcp.tool(
+    name="assign_task",
+    description="Select the best matching robot when needed, then queue and assign a task.",
+)
+async def assign_task(
+    task: str,
+    payload_kg: float = 0,
+    payload: dict | None = None,
+    agent_id: str | None = None,
+    locations: dict | None = None,
+    skill: str | None = None,
+) -> dict:
+    requested_skill = (skill or "").strip()
+    if not task.strip():
+        return _error("task is required", "validation")
+    if payload_kg < 0:
+        return _error("payload_kg cannot be negative", "validation")
+
+    if database.db is None:
+        await database.init_db()
+
+    if agent_id and agent_id.strip():
+        selected_agent_id = agent_id.strip()
+        try:
+            card = await _client.find_agent_by_id(selected_agent_id)
+        except Exception as exc:
+            return _error(str(exc), "registry")
+    else:
+        try:
+            cards = await _client.list_agents()
+        except Exception as exc:
+            return _error(str(exc), "registry")
+        candidates = []
+        for candidate in cards:
+            candidate_id = candidate.get("id") or candidate.get("agent_id")
+            candidate_skills = candidate.get("skills", [])
+            matching_skill = next(
+                (
+                    item for item in candidate_skills
+                    if not requested_skill
+                    or (item.get("id") if isinstance(item, dict) else item) == requested_skill
+                ),
+                None,
+            )
+            if not candidate_id or matching_skill is None:
+                continue
+            try:
+                capacity = float((candidate.get("metadata") or {}).get("max_payload_kg", 0))
+            except (TypeError, ValueError):
+                continue
+            if payload_kg <= capacity:
+                current_tasks = await database.db.tasks.find({"agent_id": candidate_id}).to_list(length=1000)
+                load = sum(item.get("status") in {"active", "queued"} for item in current_tasks)
+                skill_id = matching_skill.get("id") if isinstance(matching_skill, dict) else matching_skill
+                task_text = task.lower()
+                suitability = 0 if requested_skill else (0 if skill_id == "pick_and_place" and any(word in task_text for word in ("move", "package", "station")) else 1)
+                candidates.append((suitability, load, candidate_id, candidate, matching_skill))
+        if not candidates:
+            skill_text = requested_skill or "a suitable skill"
+            return _error(f"No robot found with {skill_text} and capacity for {payload_kg} kg", "registry")
+        _, _, selected_agent_id, card, selected_skill = min(candidates, key=lambda item: (item[0], item[1], item[2]))
+        requested_skill = selected_skill.get("id") if isinstance(selected_skill, dict) else selected_skill
+
+    advertised_skills = card.get("skills", [])
+    selected_skill = next(
+        (item for item in advertised_skills if (item.get("id") if isinstance(item, dict) else item) == requested_skill),
+        None,
+    )
+    if selected_skill is None:
+        return _error(f"Agent '{selected_agent_id}' does not advertise skill '{requested_skill}'", "validation")
+    metadata = card.get("metadata") or {}
+    try:
+        capacity = float(metadata.get("max_payload_kg", 0))
+    except (TypeError, ValueError):
+        return _error("Agent max_payload_kg is invalid", "validation")
+    if payload_kg > capacity:
+        return _error(f"Payload {payload_kg} kg exceeds agent capacity of {capacity} kg", "validation")
+
+    base_url = card.get("url", "").rstrip("/")
+    endpoint = selected_skill.get("endpoint", "/task") if isinstance(selected_skill, dict) else "/task"
+    request = {
+        "jsonrpc": "2.0",
+        "id": str(uuid.uuid4()),
+        "method": "assign_task",
+        "params": {
+            "agent_id": selected_agent_id,
+            "skill": requested_skill,
+            "task": task.strip(),
+            "payload_kg": payload_kg,
+            "payload": payload or {},
+            "locations": locations or {},
+            "task_id": str(uuid.uuid4()),
+            "session_id": str(uuid.uuid4()),
+        },
+    }
+    task_params = request["params"]
+    await database.db.tasks.update_one(
+        {"task_id": task_params["task_id"]},
+        {
+            "$set": {
+                **task_params,
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+        upsert=True,
+    )
+    try:
+        result = await _client.send_raw(f"{base_url}/{endpoint.lstrip('/')}", request)
+    except Exception as exc:
+        await database.db.tasks.update_one(
+            {"task_id": task_params["task_id"]},
+            {"$set": {"status": "failed", "error": str(exc), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        await _record_session(selected_agent_id, "assign_task", {"request": request, "error": str(exc)}, "failed")
+        return _error(str(exc), "robot_agent")
+    task_result = result.get("result", result)
+    if isinstance(task_result, dict):
+        task_update = {**task_result, "updated_at": datetime.now(timezone.utc).isoformat()}
+        if result.get("error"):
+            task_update.update({"status": "failed", "error": result["error"]})
+        await database.db.tasks.update_one(
+            {"task_id": task_params["task_id"]},
+            {"$set": task_update},
+        )
+    session = await _record_session(selected_agent_id, "assign_task", {"request": request, "result": result})
+    return {"success": True, "agent_id": selected_agent_id, "task": task.strip(), "result": result.get("result", result), "session": _sanitize_session(session)}
+
+
+@mcp.tool(
+    name="end_task_session",
+    description="End one robot task session and activate the next queued task for that robot.",
+)
+async def end_task_session(session_id: str) -> dict:
+    if not session_id.strip():
+        return _error("session_id is required", "validation")
+    if database.db is None:
+        await database.init_db()
+    task = await database.db.tasks.find_one({"session_id": session_id.strip()})
+    if not task:
+        return _error(f"Task session '{session_id}' not found", "tasks")
+    if task.get("status") not in {"active", "queued", "accepted"}:
+        return _error(f"Task session '{session_id}' is already {task.get('status')}", "tasks")
+
+    ended_at = datetime.now(timezone.utc).isoformat()
+    await database.db.tasks.update_one(
+        {"session_id": session_id.strip()},
+        {"$set": {"status": "completed", "ended_at": ended_at}},
+    )
+    queued = await database.db.tasks.find({"agent_id": task.get("agent_id")}).to_list(length=1000)
+    queued = [item for item in queued if item.get("status") == "queued"]
+    next_task = min(queued, key=lambda item: item.get("created_at", ""), default=None)
+    if next_task:
+        await database.db.tasks.update_one(
+            {"task_id": next_task.get("task_id")},
+            {"$set": {"status": "active", "activated_at": ended_at}},
+        )
+    audit = await _record_session(task.get("agent_id", "unknown"), "end_task_session", {
+        "ended_session_id": session_id.strip(),
+        "next_task_id": next_task.get("task_id") if next_task else None,
+    }, "completed")
+    return {
+        "success": True,
+        "agent_id": task.get("agent_id"),
+        "ended_session_id": session_id.strip(),
+        "next_task_id": next_task.get("task_id") if next_task else None,
+        "session": _sanitize_session(audit),
+    }
+
+
+@mcp.tool(
+    name="end_all_task_sessions",
+    description="End all active and queued robot task sessions, optionally for one robot.",
+)
+async def end_all_task_sessions(agent_id: str | None = None) -> dict:
+    if database.db is None:
+        await database.init_db()
+    tasks = await database.db.tasks.find({}).to_list(length=5000)
+    candidates = [
+        item for item in tasks
+        if item.get("status") in {"active", "queued", "accepted"}
+        and (not agent_id or item.get("agent_id") == agent_id.strip())
+    ]
+    ended_at = datetime.now(timezone.utc).isoformat()
+    for task in candidates:
+        final_status = "completed" if task.get("status") == "active" else "cancelled"
+        await database.db.tasks.update_one(
+            {"task_id": task.get("task_id")},
+            {"$set": {"status": final_status, "ended_at": ended_at}},
+        )
+    audit = await _record_session(agent_id or "all-agents", "end_all_task_sessions", {
+        "ended_count": len(candidates),
+    }, "completed")
+    return {
+        "success": True,
+        "ended_count": len(candidates),
+        "agent_id": agent_id,
+        "session": _sanitize_session(audit),
+    }
+
+
+@mcp.tool(
+    name="find_robot_by_skill",
+    description="Find a registered industrial robot that advertises the requested skill.",
+)
+async def find_robot_by_skill(skill: str) -> dict:
+    if not skill.strip():
+        return _error("skill is required", "validation")
+    try:
+        agents = await _client.list_agents()
+        for card in agents:
+            metadata = card.get("metadata") or {}
+            is_robot = metadata.get("agent_type") == "industrial_arm" or card.get("agent_type") == "industrial_arm"
+            has_skill = any(
+                (item.get("id") if isinstance(item, dict) else item) == skill.strip()
+                for item in card.get("skills", [])
+            )
+            if is_robot and has_skill:
+                session = await _record_session(card.get("id") or card.get("name", "unknown"), "find_robot_by_skill", {"skill": skill.strip()})
+                return {"success": True, "agent": _sanitize_card(dict(card)), "session": _sanitize_session(session)}
+        return _error(f"No robot found for skill '{skill}'", "registry")
+    except Exception as exc:
+        return _error(str(exc), "registry")
+
+@_internal_tool(
     description=(
         "Attach a UE to the 6G core network. Delegates to the Supervisor which "
         "orchestrates AUSF → UDM → Security → Subscriber autonomously. "
@@ -271,7 +605,7 @@ async def attach_ue(
     return output
 
 
-@mcp.tool(
+@_internal_tool(
     description=(
         "Request a network service for a UE. Delegates to the Supervisor which "
         "looks up QoS and service plan from the Subscriber agent. "
@@ -310,7 +644,7 @@ async def request_ue_service(
     }
 
 
-@mcp.tool(
+@_internal_tool(
     description=(
         "Send an A2A peer message from one UE to another. "
         "Discovers the sender UE through the Registry and uses its "
@@ -354,7 +688,7 @@ async def send_ue_message(
         return _error(str(exc), "ue_agent")
 
 
-@mcp.tool(
+@_internal_tool(
     description=(
         "Broadcast an A2A message from one UE to every other registered UE. "
         "Uses the sender UE's /broadcast endpoint."
@@ -413,7 +747,8 @@ async def get_ue_inbox(ue_agent_id: str) -> dict:
             resp.raise_for_status()
             data = resp.json()
             messages = data.get("result", [])
-            return {"success": True, "agent_id": ue_agent_id.strip(), "messages": messages, "count": len(messages)}
+            session = await _record_session(ue_agent_id.strip(), "get_ue_inbox", {"message_count": len(messages)})
+            return {"success": True, "agent_id": ue_agent_id.strip(), "messages": messages, "count": len(messages), "session": _sanitize_session(session)}
     except Exception as exc:
         return _error(str(exc), "ue_agent")
 
@@ -428,7 +763,8 @@ async def find_agent(agent_id: str) -> dict:
 
     try:
         card = await _client.find_agent_by_id(agent_id.strip())
-        return {"success": True, "agent": _sanitize_card(card)}
+        session = await _record_session(agent_id.strip(), "find_agent", {"found": True})
+        return {"success": True, "agent": _sanitize_card(card), "session": _sanitize_session(session)}
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             return _error(f"Agent '{agent_id}' not found", "registry")
@@ -437,7 +773,7 @@ async def find_agent(agent_id: str) -> dict:
         return _error(str(exc), "registry")
 
 
-@mcp.tool(
+@_internal_tool(
     description=(
         "Discover an agent that advertises a specific skill. "
         "Returns the agent card, skill details, and the resolved endpoint URL."
@@ -481,13 +817,26 @@ async def list_active_sessions() -> dict:
             resp.raise_for_status()
             data = resp.json()
             sessions = data.get("result", [])
+            session = await _record_session("mcp-server", "list_active_sessions", {"supervisor_count": len(sessions)})
             sanitized = [_sanitize_session(dict(s)) for s in sessions]
+            stored_sessions = await database.db.mcp_sessions.find({"status": "active"}).to_list(length=100)
+            sanitized.extend(_sanitize_session(dict(s)) for s in stored_sessions)
+            task_sessions = await database.db.tasks.find({}).to_list(length=1000)
+            sanitized.extend({
+                "task_session_id": task.get("session_id"),
+                "agent_id": task.get("agent_id"),
+                "operation": "task",
+                "task_id": task.get("task_id"),
+                "status": task.get("status"),
+                "started_at": task.get("created_at"),
+                "updated_at": task.get("activated_at", task.get("created_at")),
+            } for task in task_sessions if task.get("status") in {"active", "queued", "accepted"})
             return {"success": True, "sessions": sanitized, "count": len(sanitized)}
     except Exception as exc:
         return _error(str(exc), "supervisor")
 
 
-@mcp.tool(
+@_internal_tool(
     description=(
         "Get a subscriber's QoS class and service plan by IMSI. "
         "Delegates to the Subscriber agent via A2A."
@@ -515,7 +864,7 @@ async def get_subscriber_profile(imsi: str) -> dict:
     }
 
 
-@mcp.tool(
+@_internal_tool(
     description=(
         "Submit a high-level goal to the Supervisor agent. Translates natural-"
         "language intents like 'attach UE', 'request video_call service', or "

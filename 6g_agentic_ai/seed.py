@@ -9,6 +9,30 @@ from shared.models import UEAgentProfile, AFAgentProfile
 import database
 from database import init_db, SubscriberProfile, UEAgentRecord, AFAgentRecord
 
+PRESERVED_COLLECTIONS = {
+    "mcp_sessions",
+    "mcp_tools",
+    "oauth_tokens",
+    "oauth_clients",
+}
+
+
+async def clear_database():
+    """Reset seed data while preserving MCP and OAuth records."""
+    if isinstance(database.db, database.InMemoryDatabase):
+        collections = [
+            value for name, value in vars(database.db).items()
+            if isinstance(value, database.InMemoryCollection)
+            and name not in PRESERVED_COLLECTIONS
+        ]
+        for collection in collections:
+            await collection.delete_many({})
+        return
+
+    for collection_name in await database.db.list_collection_names():
+        if collection_name not in PRESERVED_COLLECTIONS:
+            await database.db[collection_name].delete_many({})
+
 
 async def seed(reset: bool = False):
     print("Connecting to database...")
@@ -20,13 +44,7 @@ async def seed(reset: bool = False):
         return
 
     print("Clearing old data (--reset)...")
-    await database.db.subscribers.delete_many({})
-    await database.db.sessions.delete_many({})
-    await database.db.security_logs.delete_many({})
-    await database.db.agent_registry.delete_many({})
-    await database.db.ue_profiles.delete_many({})
-    await database.db.af_profiles.delete_many({})
-    await database.db.agent_messages.delete_many({})
+    await clear_database()
 
     print("Seeding subscribers...")
     sub1 = SubscriberProfile(

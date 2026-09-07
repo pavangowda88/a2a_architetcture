@@ -23,6 +23,8 @@ os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017/test")
 os.environ.setdefault("MCP_SERVER_CLIENT_SECRET", "mcp-secret")
 
 import httpx
+import database
+import ue
 from mcp_server import (
     mcp,
     _client,
@@ -38,7 +40,126 @@ from mcp_server import (
     run_supervisor_workflow,
     resource_topology,
     diagnose_network_issue,
+    assign_task as assign_task_tool,
+    end_task_session,
+    end_all_task_sessions,
 )
+
+
+@pytest.mark.asyncio
+async def test_ue_task_endpoint_accepts_pick_and_place():
+    transport = httpx.ASGITransport(app=ue.app)
+    request = {
+        "jsonrpc": "2.0",
+        "id": "test-1",
+        "method": "assign_task",
+        "params": {
+            "agent_id": "robot_test_001",
+            "skill": "pick_and_place",
+            "task": "Move the test package to station B",
+            "payload_kg": 2,
+            "payload": {"source": "station-A", "destination": "station-B"},
+        },
+    }
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch.object(ue, "require_oauth_scope", new=AsyncMock()):
+            response = await client.post("/task", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["result"]["accepted"] is True
+    assert response.json()["result"]["payload_kg"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_ue_inbox_includes_accepted_tasks():
+    previous_db = database.db
+    database.db = database.InMemoryDatabase()
+    await database.db.tasks.insert_one({
+        "agent_id": ue.AGENT_ID,
+        "skill": "pick_and_place",
+        "task": "Move the test package to station B",
+        "payload_kg": 2.0,
+        "payload": {"source": "station-A", "destination": "station-B"},
+        "status": "accepted",
+    })
+
+    try:
+        transport = httpx.ASGITransport(app=ue.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch.object(ue, "require_oauth_scope", new=AsyncMock()):
+                response = await client.get("/inbox")
+    finally:
+        database.db = previous_db
+
+    assert response.status_code == 200
+    task_items = [item for item in response.json()["result"] if item.get("type") == "task"]
+    assert len(task_items) == 1
+    assert task_items[0]["task"] == "Move the test package to station B"
+
+
+@pytest.mark.asyncio
+async def test_robot_tasks_queue_and_end_session_promotes_next_task():
+    previous_db = database.db
+    database.db = database.InMemoryDatabase()
+    request = {
+        "jsonrpc": "2.0",
+        "id": "queue-test",
+        "method": "assign_task",
+        "params": {
+            "agent_id": "robot_test_001",
+            "skill": "pick_and_place",
+            "task": "Move package",
+            "payload_kg": 2,
+            "locations": {"source": "station-A", "destination": "station-B"},
+        },
+    }
+
+    try:
+        transport = httpx.ASGITransport(app=ue.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch.object(ue, "require_oauth_scope", new=AsyncMock()):
+                first_response = await client.post("/task", json=request)
+                second_response = await client.post("/task", json=request)
+
+        first = first_response.json()["result"]
+        second = second_response.json()["result"]
+        assert first["status"] == "active"
+        assert second["status"] == "queued"
+
+        ended = await end_task_session(first["session_id"])
+        assert ended["success"] is True
+        assert ended["next_task_id"] == second["task_id"]
+        active = await database.db.tasks.find_one({"task_id": second["task_id"]})
+        assert active["status"] == "active"
+
+        closed = await end_all_task_sessions("robot_test_001")
+        assert closed["ended_count"] == 1
+    finally:
+        database.db = previous_db
+
+
+@pytest.mark.asyncio
+async def test_assign_task_selects_least_loaded_capable_robot():
+    previous_db = database.db
+    database.db = database.InMemoryDatabase()
+    await database.db.tasks.insert_one({"agent_id": "robot-b", "status": "active"})
+    cards = [
+        {"id": "robot-a", "url": "http://robot-a", "skills": [{"id": "pick_and_place", "endpoint": "/task"}], "metadata": {"max_payload_kg": 5}},
+        {"id": "robot-b", "url": "http://robot-b", "skills": [{"id": "pick_and_place", "endpoint": "/task"}], "metadata": {"max_payload_kg": 10}},
+    ]
+    try:
+        with patch.object(_client, "list_agents", new_callable=AsyncMock, return_value=cards), \
+             patch.object(_client, "send_raw", new_callable=AsyncMock, return_value={"result": {"accepted": True}}):
+            result = await assign_task_tool(
+                task="Move package to station B",
+                payload_kg=3,
+                locations={"source": "station-A", "destination": "station-B"},
+            )
+        assert result["success"] is True
+        assert result["agent_id"] == "robot-a"
+    finally:
+        database.db = previous_db
 
 
 # ---------------------------------------------------------------------------

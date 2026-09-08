@@ -200,6 +200,11 @@ planning and MCP tool calling. If no LLM key is configured, it falls back to
 live MCP tool names, descriptions, and input schemas for lightweight local
 tool selection. No tools are duplicated in the chat service.
 
+For skill discovery, ask the chat to list agents advertising a skill, for
+example: `List all agents with the inspection skill`. The MCP gateway exposes
+`list_agents_by_skill` for this multi-agent lookup; `find_robot_by_skill`
+remains available when only one industrial robot is needed.
+
 To enable an external OpenAI-compatible LLM, set these local `.env` values:
 
 ```dotenv

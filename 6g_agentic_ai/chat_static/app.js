@@ -103,10 +103,11 @@ async function send(text) {
 }
 async function loadStatus() {
   try {
-    const response = await fetch('/api/status'); const data = await response.json(); state.tools = data.tools || [];
-    $('#connectionText').textContent = data.connected ? `MCP Connected · ${data.tool_count} tools` : 'MCP Offline'; $('#sideStatus').textContent = data.connected ? 'MCP Connected' : 'MCP Offline'; $('#statusDot').classList.toggle('on', data.connected); $('#dialogDot').classList.toggle('on', data.connected); $('#dialogStatus').textContent = data.connected ? 'Connected' : 'Unavailable'; $('#toolCount').textContent = `${data.tool_count} discovered tools`; $('#llmStatus').textContent = data.llm_enabled ? data.llm_model : 'Local fallback';
-    $('#suggestions').innerHTML = state.tools.slice(0, 4).map((tool) => `<button class="suggestion" data-prompt="${escapeHtml(tool.description || tool.name)}">${escapeHtml(tool.description || tool.name)}</button>`).join('');
-  } catch { $('#connectionText').textContent = 'MCP Offline'; $('#sideStatus').textContent = 'MCP Offline'; }
+    const response = await fetch(`/api/status?ts=${Date.now()}`, { cache: 'no-store' }); const data = await response.json(); state.tools = data.tools || [];
+    $('#connectionText').textContent = data.connected ? `MCP Connected · ${data.tool_count} tools` : 'MCP Offline'; $('#sideStatus').textContent = data.connected ? 'MCP Connected' : 'MCP Offline'; $('#statusDot').classList.toggle('on', data.connected); $('#dialogDot').classList.toggle('on', data.connected); $('#dialogStatus').textContent = data.connected ? 'Connected' : 'Unavailable'; $('#toolCount').textContent = data.connected ? `${data.tool_count} discovered tools` : (data.error || 'MCP unavailable'); $('#llmStatus').textContent = data.llm_enabled ? data.llm_model : 'Local fallback';
+    const suggestions = $('#suggestions');
+    if (suggestions) suggestions.innerHTML = state.tools.slice(0, 4).map((tool) => `<button class="suggestion" data-prompt="${escapeHtml(tool.description || tool.name)}">${escapeHtml(tool.description || tool.name)}</button>`).join('');
+  } catch (error) { $('#connectionText').textContent = 'MCP Offline'; $('#sideStatus').textContent = 'MCP Offline'; $('#statusDot').classList.remove('on'); $('#dialogDot').classList.remove('on'); $('#dialogStatus').textContent = 'Unavailable'; $('#toolCount').textContent = error.message || 'Status check failed'; }
 }
 $('#composer').addEventListener('submit', (event) => { event.preventDefault(); send(input.value); });
 $('#sendButton').addEventListener('click', (event) => { if (state.controller) { event.preventDefault(); state.controller.abort(); state.controller = null; setThinking(false); } });
@@ -118,3 +119,4 @@ $('#history').addEventListener('click', (event) => { const button = event.target
 $('#developerToggle').addEventListener('click', (event) => { state.developer = !state.developer; event.currentTarget.classList.toggle('active', state.developer); });
 $('#settingsButton').addEventListener('click', () => $('#settingsDialog').showModal()); $('#closeSettings').addEventListener('click', () => $('#settingsDialog').close());
 renderHistory(); renderConversation(); loadStatus();
+setInterval(loadStatus, 10000);

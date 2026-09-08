@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import os
 import re
@@ -13,7 +14,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -61,6 +62,7 @@ class MCPGateway:
     def __init__(self, url: str):
         self.url = url
         self.session_id: str | None = None
+        self._request_lock = asyncio.Lock()
 
     async def _post(self, payload: dict[str, Any], session_id: str | None = None) -> tuple[dict[str, Any], str | None]:
         token = await _oauth.get_access_token()
@@ -79,20 +81,26 @@ class MCPGateway:
         return _jsonrpc_payload(response), response.headers.get("Mcp-Session-Id") or session_id
 
     async def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        result, session_id = await self._post(
-            {"jsonrpc": "2.0", "id": str(uuid.uuid4()), "method": method, "params": params or {}},
-            self.session_id,
-        )
-        self.session_id = session_id
-        if "error" in result:
-            raise RuntimeError(result["error"].get("message", "MCP request failed"))
-        if method == "initialize":
-            await self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, session_id)
-        return result.get("result", {})
+        async with self._request_lock:
+            result, session_id = await self._post(
+                {"jsonrpc": "2.0", "id": str(uuid.uuid4()), "method": method, "params": params or {}},
+                self.session_id,
+            )
+            self.session_id = session_id
+            if "error" in result:
+                raise RuntimeError(result["error"].get("message", "MCP request failed"))
+            if method == "initialize":
+                await self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, session_id)
+            return result.get("result", {})
 
     async def tools(self) -> list[dict[str, Any]]:
-        await self.initialize()
-        return (await self.request("tools/list")).get("tools", [])
+        try:
+            await self.initialize()
+            return (await self.request("tools/list")).get("tools", [])
+        except Exception:
+            self.session_id = None
+            await self.initialize()
+            return (await self.request("tools/list")).get("tools", [])
 
     async def call(self, name: str, arguments: dict[str, Any]) -> Any:
         await self.initialize()
@@ -111,6 +119,7 @@ class MCPGateway:
 
 
 gateway = MCPGateway(MCP_URL)
+status_gateway = MCPGateway(MCP_URL)
 app.mount("/chat_static", StaticFiles(directory=STATIC_DIR), name="chat_static")
 
 
@@ -354,25 +363,27 @@ async def index() -> FileResponse:
 
 @app.get("/api/status")
 async def status() -> dict[str, Any]:
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
     try:
-        tools = await gateway.tools()
-        return {
+        tools = await status_gateway.tools()
+        return JSONResponse({
             "connected": True,
             "server": "6G-Core-Network",
             "tool_count": len(tools),
             "tools": tools,
             "llm_enabled": LLM_ENABLED,
             "llm_model": LLM_MODEL if LLM_ENABLED else None,
-        }
-    except Exception:
-        return {
+        }, headers=headers)
+    except Exception as exc:
+        return JSONResponse({
             "connected": False,
             "server": "6G-Core-Network",
             "tool_count": 0,
             "tools": [],
             "llm_enabled": LLM_ENABLED,
             "llm_model": LLM_MODEL if LLM_ENABLED else None,
-        }
+            "error": str(exc),
+        }, headers=headers)
 
 
 @app.post("/api/chat")

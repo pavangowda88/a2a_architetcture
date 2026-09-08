@@ -41,6 +41,7 @@ from mcp_server import (
     resource_topology,
     diagnose_network_issue,
     assign_task as assign_task_tool,
+    list_agents_by_skill,
     end_task_session,
     end_all_task_sessions,
 )
@@ -229,6 +230,39 @@ async def test_register_reports_started_robot_task_endpoint():
         assert result["endpoint"]["status"] == "started"
     finally:
         database.db = previous_db
+
+    @pytest.mark.asyncio
+    async def test_register_existing_agent_returns_authentication_next_action(self):
+        previous_db = database.db
+        database.db = database.InMemoryDatabase()
+        existing_card = {
+            "id": "robot-existing",
+            "name": "Existing Robot",
+            "url": "http://localhost:8123",
+            "skills": [{"id": "inspection"}],
+            "metadata": {"agent_type": "industrial_arm"},
+        }
+        try:
+            with patch.object(_client, "find_agent_by_id", new_callable=AsyncMock, return_value=existing_card), \
+                 patch.object(mcp_server, "_record_session", new_callable=AsyncMock, return_value={"status": "active"}), \
+                 patch.object(_client, "register", new_callable=AsyncMock) as register_mock:
+                result = await mcp_server.register(
+                    agent_id="robot-existing",
+                    agent_name="Replacement Name",
+                    agent_type="industrial_arm",
+                    imsi="001010000000199",
+                    imei="356938035643999",
+                    endpoint="http://localhost:8123",
+                    skills=["inspection"],
+                    services=[],
+                )
+            assert result["success"] is True
+            assert result["already_registered"] is True
+            assert result["next_action"] == "authenticate"
+            assert result["agent"]["name"] == "Existing Robot"
+            register_mock.assert_not_called()
+        finally:
+            database.db = previous_db
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +478,25 @@ class TestMockedSuccess:
             result = await find_agent_by_skill(skill_id="orchestrate")
             assert result["success"] is True
             assert result["agent_id"] == "supervisor_agent"
+
+    @pytest.mark.asyncio
+    async def test_list_agents_by_skill_returns_all_matching_agents(self):
+        previous_db = database.db
+        database.db = database.InMemoryDatabase()
+        cards = [
+            {"id": "robot-1", "name": "Robot 1", "skills": [{"id": "inspection"}], "metadata": {"agent_type": "industrial_arm"}},
+            {"id": "robot-2", "name": "Robot 2", "skills": [{"id": "inspection"}], "metadata": {"agent_type": "industrial_arm"}},
+            {"id": "ue-1", "name": "UE 1", "skills": [{"id": "attach"}]},
+        ]
+        try:
+            with patch.object(_client, "list_agents", new_callable=AsyncMock, return_value=cards), \
+                 patch.object(mcp_server, "_record_session", new_callable=AsyncMock, return_value={"status": "active"}):
+                result = await list_agents_by_skill(skill="inspection")
+            assert result["success"] is True
+            assert result["count"] == 2
+            assert {agent["id"] for agent in result["agents"]} == {"robot-1", "robot-2"}
+        finally:
+            database.db = previous_db
 
     @pytest.mark.asyncio
     async def test_get_subscriber_profile_success(self):

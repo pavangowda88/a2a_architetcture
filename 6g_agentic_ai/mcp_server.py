@@ -335,8 +335,34 @@ async def register(
     if not normalized_skills:
         return _error("skills must contain non-empty strings", "validation")
 
+    normalized_agent_id = agent_id.strip()
+    try:
+        existing_card = await _client.find_agent_by_id(normalized_agent_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 404:
+            return _error(f"Registry returned HTTP {exc.response.status_code}", "registry")
+        existing_card = None
+    except Exception as exc:
+        return _error(str(exc), "registry")
+
+    if existing_card:
+        session = await _record_session(
+            normalized_agent_id,
+            "register_existing",
+            {"already_registered": True},
+        )
+        return {
+            "success": True,
+            "already_registered": True,
+            "agent_id": normalized_agent_id,
+            "agent": _sanitize_card(dict(existing_card)),
+            "next_action": "authenticate",
+            "message": f"Agent '{normalized_agent_id}' is already registered. You can continue with authentication.",
+            "session": _sanitize_session(session),
+        }
+
     card = {
-        "id": agent_id.strip(),
+        "id": normalized_agent_id,
         "name": agent_name.strip(),
         "description": f"Industrial robot agent: {agent_name.strip()}",
         "url": endpoint.strip().rstrip("/"),
@@ -350,10 +376,11 @@ async def register(
     if not response.get("success", True) and "error" in response:
         return response
     endpoint_status = await _provision_robot_endpoint(card)
-    session = await _record_session(agent_id.strip(), "register", {"agent_card": card})
+    session = await _record_session(normalized_agent_id, "register", {"agent_card": card})
     return {
         "success": True,
-        "agent_id": agent_id.strip(),
+        "agent_id": normalized_agent_id,
+        
         "agent": _sanitize_card(card),
         "endpoint": endpoint_status,
         "session": _sanitize_session(session),
@@ -620,6 +647,43 @@ async def find_robot_by_skill(skill: str) -> dict:
         return _error(f"No robot found for skill '{skill}'", "registry")
     except Exception as exc:
         return _error(str(exc), "registry")
+
+
+@mcp.tool(
+    name="list_agents_by_skill",
+    description="List every registered agent that advertises the requested skill.",
+)
+async def list_agents_by_skill(skill: str) -> dict:
+    """Return all registered agent cards whose advertised skill matches exactly."""
+    requested_skill = skill.strip()
+    if not requested_skill:
+        return _error("skill is required", "validation")
+    try:
+        agents = await _client.list_agents()
+        matches = []
+        for card in agents:
+            skills = card.get("skills", [])
+            has_skill = any(
+                (item.get("id") if isinstance(item, dict) else item) == requested_skill
+                for item in skills
+            )
+            if has_skill:
+                matches.append(_sanitize_card(dict(card)))
+        session = await _record_session(
+            "mcp-server",
+            "list_agents_by_skill",
+            {"skill": requested_skill, "match_count": len(matches)},
+        )
+        return {
+            "success": True,
+            "skill": requested_skill,
+            "agents": matches,
+            "count": len(matches),
+            "session": _sanitize_session(session),
+        }
+    except Exception as exc:
+        return _error(str(exc), "registry")
+
 
 @_internal_tool(
     description=(

@@ -39,6 +39,21 @@ function markdown(value) {
   closeList();
   return html || '<p></p>';
 }
+function processExplanation(steps) {
+  if (!steps.length) return '';
+  const lines = ['### How this was handled'];
+  lines.push('- Step 1: I matched your request to an available MCP capability and checked the information it needs.');
+  steps.forEach((step, index) => {
+     const tool = step.tool ? ` \`${step.tool}\`` : 'the requested operation';
+    const stepNumber = index + 2;
+    if (step.status === 'waiting') lines.push(`- Step ${stepNumber}: I identified ${tool}, but I need the missing information before I can run it.`);
+    else if (step.status === 'confirmation') lines.push(`- Step ${stepNumber}: I prepared ${tool} with the requested inputs and paused because it can change network state.`);
+    else if (step.status === 'error') lines.push(`- Step ${stepNumber}: I tried ${tool}, but the MCP gateway reported an error.`);
+    else if (step.status === 'completed') lines.push(`- Step ${stepNumber}: I sent the request to ${tool} through the MCP gateway, waited for its result, and used that result for the response.`);
+    else lines.push(`- Step ${stepNumber}: I prepared ${tool} and am waiting for the next required step.`);
+  });
+  return markdown(lines.join('\n'));
+}
 function saveConversation() {
   const conversations = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]').filter((item) => item.id !== state.id);
   conversations.unshift({
@@ -59,7 +74,7 @@ function addMessage(role, text, steps = []) {
   state.messages.push({ role, text, steps });
   const item = document.createElement('article');
   item.className = `message ${role}`;
-  item.innerHTML = `<div class="message-bubble${role === 'assistant' ? ' markdown' : ''}">${role === 'assistant' ? markdown(text) : escapeHtml(text)}</div>`;
+  item.innerHTML = `<div class="message-bubble${role === 'assistant' ? ' markdown' : ''}">${role === 'assistant' ? markdown(text) + processExplanation(steps) : escapeHtml(text)}</div>`;
   steps.forEach((step) => {
     const status = step.status === 'completed' ? '✓ Completed' : step.status === 'error' ? 'Failed' : step.status === 'confirmation' ? 'Needs confirmation' : 'Waiting';
     const details = state.developer || step.status === 'completed' || step.status === 'error';
@@ -79,7 +94,7 @@ function renderConversation() {
 function addMessageMarkup(message) {
   const item = document.createElement('article');
   item.className = `message ${message.role}`;
-  item.innerHTML = `<div class="message-bubble${message.role === 'assistant' ? ' markdown' : ''}">${message.role === 'assistant' ? markdown(message.text) : escapeHtml(message.text)}</div>`;
+  item.innerHTML = `<div class="message-bubble${message.role === 'assistant' ? ' markdown' : ''}">${message.role === 'assistant' ? markdown(message.text) + processExplanation(message.steps || []) : escapeHtml(message.text)}</div>`;
   (message.steps || []).forEach((step) => {
     const status = step.status === 'completed' ? '✓ Completed' : step.status === 'error' ? 'Failed' : step.status === 'confirmation' ? 'Needs confirmation' : 'Waiting';
     const details = state.developer || step.status === 'completed' || step.status === 'error';

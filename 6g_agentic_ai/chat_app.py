@@ -397,6 +397,21 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail="Unable to reach the MCP gateway") from exc
 
 
+@app.get("/api/inbox/{agent_id}")
+async def get_agent_inbox(agent_id: str) -> dict[str, Any]:
+    result = await gateway.call("get_ue_inbox", {"ue_agent_id": agent_id})
+    return result
+
+
+@app.get("/api/agents")
+async def list_agents_api() -> dict[str, Any]:
+    try:
+        result = await gateway.call("find_agent", {"agent_id": "all"})
+        return result if isinstance(result, dict) else {"agents": result}
+    except Exception as exc:
+        return {"error": str(exc), "agents": []}
+
+
 if __name__ == "__main__":
     import uvicorn
 

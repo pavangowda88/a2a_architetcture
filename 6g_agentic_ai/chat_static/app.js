@@ -78,7 +78,7 @@ function addMessage(role, text, steps = []) {
   steps.forEach((step) => {
     const status = step.status === 'completed' ? '✓ Completed' : step.status === 'error' ? 'Failed' : step.status === 'confirmation' ? 'Needs confirmation' : 'Waiting';
     const details = state.developer || step.status === 'completed' || step.status === 'error';
-    item.innerHTML += `<details class="tool-card" ${details ? '' : ''}><summary class="tool-summary"><span class="tool-icon">${step.status === 'completed' ? '✓' : '⚙'}</span><strong>${escapeHtml(step.tool)}</strong><span class="tool-status">${status}${step.duration_ms ? ` · ${step.duration_ms}ms` : ''}</span></summary><div class="tool-body"><div class="json-block"><label>Input</label><pre>${json(step.input)}</pre></div>${step.output !== undefined ? `<div class="json-block"><label>Output</label><pre>${json(step.output)}</pre></div>` : step.error ? `<div class="json-block"><label>Error</label><pre>${escapeHtml(step.error)}</pre></div>` : ''}</div></details>`;
+    item.innerHTML += `<details class="tool-card" ${details ? 'open' : ''}><summary class="tool-summary"><span class="tool-icon">${step.status === 'completed' ? '✓' : '⚙'}</span><strong>${escapeHtml(step.tool)}</strong><span class="tool-status">${status}${step.duration_ms ? ` · ${step.duration_ms}ms` : ''}</span></summary><div class="tool-body"><div class="json-block"><label>Input</label><pre>${json(step.input)}</pre></div>${step.output !== undefined ? `<details class="json-block raw-output"><summary>Output JSON</summary><pre>${json(step.output)}</pre></details>` : step.error ? `<div class="json-block"><label>Error</label><pre>${escapeHtml(step.error)}</pre></div>` : ''}</div></details>`;
     enrichToolCard(step, item);
   });
   conversation.appendChild(item); conversation.scrollTop = conversation.scrollHeight;
@@ -99,7 +99,7 @@ function addMessageMarkup(message) {
   (message.steps || []).forEach((step) => {
     const status = step.status === 'completed' ? '✓ Completed' : step.status === 'error' ? 'Failed' : step.status === 'confirmation' ? 'Needs confirmation' : 'Waiting';
     const details = state.developer || step.status === 'completed' || step.status === 'error';
-    item.innerHTML += `<details class="tool-card" ${details ? '' : ''}><summary class="tool-summary"><span class="tool-icon">${step.status === 'completed' ? '✓' : '⚙'}</span><strong>${escapeHtml(step.tool)}</strong><span class="tool-status">${status}${step.duration_ms ? ` · ${step.duration_ms}ms` : ''}</span></summary><div class="tool-body"><div class="json-block"><label>Input</label><pre>${json(step.input)}</pre></div>${step.output !== undefined ? `<div class="json-block"><label>Output</label><pre>${json(step.output)}</pre></div>` : step.error ? `<div class="json-block"><label>Error</label><pre>${escapeHtml(step.error)}</pre></div>` : ''}</div></details>`;
+    item.innerHTML += `<details class="tool-card" ${details ? 'open' : ''}><summary class="tool-summary"><span class="tool-icon">${step.status === 'completed' ? '✓' : '⚙'}</span><strong>${escapeHtml(step.tool)}</strong><span class="tool-status">${status}${step.duration_ms ? ` · ${step.duration_ms}ms` : ''}</span></summary><div class="tool-body"><div class="json-block"><label>Input</label><pre>${json(step.input)}</pre></div>${step.output !== undefined ? `<details class="json-block raw-output"><summary>Output JSON</summary><pre>${json(step.output)}</pre></details>` : step.error ? `<div class="json-block"><label>Error</label><pre>${escapeHtml(step.error)}</pre></div>` : ''}</div></details>`;
     enrichToolCard(step, item);
   });
   conversation.appendChild(item);
@@ -172,6 +172,8 @@ function payloadBar(kg) {
 }
 function textRow(label, value) { return value === undefined || value === null ? '' : `<div class="demo-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`; }
 function shortId(value) { const text = String(value); return text.length > 18 ? `${text.slice(0, 8)}…${text.slice(-6)}` : text; }
+function valueText(value) { return typeof value === 'object' ? JSON.stringify(value) : String(value); }
+function outputHeading(label, value) { return value === undefined || value === null ? '' : `<div class="output-heading"><span>${escapeHtml(label)}</span><strong>${escapeHtml(valueText(value))}</strong></div>`; }
 
 function getAuthFailedIndex(output) {
   if (output.authenticated) return -1;
@@ -202,7 +204,11 @@ function buildAgentCard(output) {
   if (!agent) return '';
   const skills = Array.isArray(agent.skills) ? agent.skills.map(skillBadge).join('') : '';
   const endpoint = agent.url || agent.endpoint;
-  return `<div class="agent-mini-card"><div class="demo-heading"><strong>${escapeHtml(agent.name || agent.id)}</strong>${agent.id ? `<span>${escapeHtml(agent.id)}</span>` : ''}</div>${endpoint ? textRow('Endpoint', endpoint) : ''}${skills ? `<div class="badge-row">${skills}</div>` : ''}${output.already_registered === true ? '<div class="demo-note">⚠ Previously registered</div>' : ''}</div>${output.endpoint ? `<div class="demo-row"><span>Endpoint status</span><strong>${escapeHtml(output.endpoint.status)}${output.endpoint.pid !== undefined ? ` · PID: ${escapeHtml(output.endpoint.pid)}` : ''}</strong></div>` : ''}`;
+  const extraFields = Object.entries(agent)
+    .filter(([key]) => !['id', 'name', 'url', 'endpoint', 'skills'].includes(key))
+    .map(([key, value]) => textRow(key, valueText(value))).join('');
+  const endpointStatus = output.endpoint ? textRow('Endpoint status', `${output.endpoint.status ?? ''}${output.endpoint.pid !== undefined ? ` · PID: ${output.endpoint.pid}` : ''}`) : '';
+  return `<div class="agent-mini-card"><div class="demo-heading"><strong>${escapeHtml(agent.name || agent.id)}</strong>${agent.id ? `<span>${escapeHtml(agent.id)}</span>` : ''}</div>${endpoint ? textRow('Endpoint', endpoint) : ''}${skills ? `<div class="badge-row">${skills}</div>` : ''}${extraFields}${output.already_registered === true ? '<div class="demo-note">⚠ Previously registered</div>' : ''}</div>${endpointStatus}`;
 }
 function buildInboxRender(output) {
   const messages = Array.isArray(output.messages) ? output.messages : [];
@@ -241,7 +247,7 @@ function enrichToolCard(step, cardElement) {
   if (!target) return;
   let visual = '';
   if (step.tool === 'authenticate' && output && typeof output === 'object') {
-    visual = buildAuthStepper(output);
+    visual = buildAuthStepper(output) + outputHeading('Authentication', output.authentication_method) + outputHeading('Agent', output.agent_id);
     if (typeof output.trust_score === 'number') { const color = output.trust_score >= 80 ? '#9df1c0' : output.trust_score >= 50 ? '#f3b37a' : '#f47a7a'; visual += `<div class="trust-bar-wrap"><div class="payload-bar-label"><span>Trust Score</span><strong>${output.trust_score}/100</strong></div><div class="payload-bar"><span class="trust-bar-fill" style="width:${Math.max(0, Math.min(100, output.trust_score))}%;background:${color}"></span></div></div>`; }
     if (typeof output.risk_level === 'string') { const color = output.risk_level === 'LOW' ? '#9df1c0' : output.risk_level === 'MEDIUM' ? '#f3b37a' : '#f47a7a'; visual += `<span class="risk-badge" style="background:${color}22;color:${color};border-color:${color}66">${escapeHtml(output.risk_level)}</span>`; }
     if (output.qos_class !== undefined && output.service_plan !== undefined) visual += textRow('QoS Class · Plan', `${output.qos_class} · ${output.service_plan}`);

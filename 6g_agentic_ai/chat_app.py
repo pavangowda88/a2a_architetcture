@@ -412,6 +412,83 @@ async def list_agents_api() -> dict[str, Any]:
         return {"error": str(exc), "agents": []}
 
 
+@app.get("/robot-sim")
+async def robot_sim_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "robot_simulation.html")
+
+
+@app.get("/api/robot-simulation")
+async def robot_simulation() -> dict[str, Any]:
+    return {
+        "robot": {
+            "name": "R-17",
+            "status": "Executing task",
+            "battery": "84%",
+            "location": "Warehouse Bay 3",
+            "mcp_tool": "assign_task"
+        },
+        "task": {
+            "id": "TASK-2048",
+            "title": "Pick-and-place workflow",
+            "summary": "Move package A-204 from shelf A2 to the outbound dock.",
+            "start_time": "09:14:12",
+            "end_time": "09:15:05"
+        },
+        "progress": 68,
+        "active_step": 2,
+        "steps": [
+            {
+                "id": "receive-task",
+                "label": "Robot receives task",
+                "status": "completed",
+                "time": "09:14:12",
+                "details": "Supervisor assignment received and validated."
+            },
+            {
+                "id": "select-tool",
+                "label": "Tool selected",
+                "status": "completed",
+                "time": "09:14:14",
+                "details": "The assign_task MCP tool was selected for the move request."
+            },
+            {
+                "id": "mcp-request",
+                "label": "MCP request sent",
+                "status": "active",
+                "time": "09:14:16",
+                "details": "JSON-RPC call sent to the backend MCP gateway with payload and route constraints."
+            },
+            {
+                "id": "robot-action",
+                "label": "Robot executes action",
+                "status": "pending",
+                "time": "--:--",
+                "details": "Robot is traversing shelf A2 and preparing the package handoff."
+            },
+            {
+                "id": "result",
+                "label": "Result returned",
+                "status": "pending",
+                "time": "--:--",
+                "details": "Task status and outcome will be returned by the MCP tool."
+            }
+        ],
+        "logs": [
+            "Task accepted by robot scheduler",
+            "Matching MCP tool: assign_task",
+            "Auth check passed for robot control channel",
+            "Warehouse route optimized for shortest path",
+            "Package sensor confirmed item A-204 is in reach",
+            "Execution in progress"
+        ],
+        "summary": {
+            "status": "Running",
+            "result": "Package transfer still in progress",
+            "last_update": "09:14:18"
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 

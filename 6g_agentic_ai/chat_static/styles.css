@@ -32,6 +32,7 @@ button { cursor: pointer; }
 .icon-button:hover { color: var(--accent); background: var(--panel-2); }
 .icon-button.active { color: var(--accent); background: rgba(157,241,192,.1); }
 .clear-button { padding: 7px 0 7px 9px; font-size: 12px; border-left: 1px solid var(--line); }
+.nav-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .conversation { width: min(820px, calc(100% - 48px)); flex: 1; margin: 0 auto; padding: 70px 0 180px; }
 .welcome { text-align: center; animation: rise .5s ease both; }
 .welcome-orbit { width: 59px; height: 59px; display: grid; place-items: center; margin: 0 auto 23px; border: 1px solid #426b5a; color: var(--accent); border-radius: 50%; box-shadow: 0 0 0 9px rgba(157,241,192,.03), inset 0 0 22px rgba(157,241,192,.08); font: 500 13px 'DM Mono', monospace; }

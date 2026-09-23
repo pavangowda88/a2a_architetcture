@@ -6,382 +6,99 @@
   <title>Robot MCP Simulation</title>
   <link rel="stylesheet" href="/chat_static/styles.css">
   <style>
-    body {
-      background: #0b1114;
-    }
-
-    .sim-shell {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 32px 22px 80px;
-    }
-
-    .sim-topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 22px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .sim-brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-weight: 800;
-      letter-spacing: 0.05em;
-    }
-
-    .sim-brand .brand-mark {
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      font-size: 12px;
-    }
-
-    .back-link {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 10px 14px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--ink);
-      text-decoration: none;
-      background: rgba(17,25,30,.72);
-    }
-
-    .sim-grid {
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 20px;
-    }
-
-    .panel {
-      background: rgba(17,25,30,.82);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      box-shadow: 0 20px 50px rgba(0,0,0,.18);
-    }
-
-    .robot-panel {
-      padding: 22px;
-    }
-
-    .robot-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 20px;
-    }
-
-    .robot-title {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .robot-avatar {
-      width: 68px;
-      height: 68px;
-      border-radius: 18px;
-      display: grid;
-      place-items: center;
-      color: #0b1114;
-      background: linear-gradient(135deg, var(--accent), #7dd9ff);
-      font-size: 30px;
-      box-shadow: 0 0 24px rgba(157,241,192,.2);
-      animation: floatRobot 3s ease-in-out infinite;
-    }
-
-    .robot-name {
-      margin: 0;
-      font-size: clamp(24px, 2.4vw, 32px);
-      letter-spacing: -0.04em;
-    }
-
-    .robot-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 6px;
-    }
-
-    .mini-chip {
-      display: inline-flex;
-      align-items: center;
-      padding: 6px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      color: var(--muted);
-      font: 10px 'DM Mono', monospace;
-      background: rgba(11,17,20,.5);
-    }
-
-    .progress-box {
-      margin-top: 10px;
-      padding: 14px 16px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: rgba(11,17,20,.45);
-    }
-
-    .progress-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-      color: var(--muted);
-      font: 11px 'DM Mono', monospace;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .progress-track {
-      width: 100%;
-      height: 12px;
-      border-radius: 999px;
-      overflow: hidden;
-      background: rgba(132,145,156,.18);
-    }
-
-    .progress-fill {
-      display: block;
-      height: 100%;
-      width: 0;
-      border-radius: 999px;
-      background: linear-gradient(90deg, var(--accent), #7dd9ff);
-      box-shadow: 0 0 18px rgba(157,241,192,.28);
-      transition: width 0.8s ease;
-    }
-
-    .task-flow {
-      margin-top: 24px;
-      display: grid;
-      gap: 12px;
-    }
-
-    .task-step {
-      display: grid;
-      grid-template-columns: 34px 1fr auto;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: rgba(11,17,20,.35);
-      opacity: 0.82;
-    }
-
-    .task-step.active {
-      border-color: rgba(157,241,192,.5);
-      background: rgba(157,241,192,.05);
-      opacity: 1;
-    }
-
-    .task-step.completed {
-      border-color: rgba(82,201,142,.4);
-      background: rgba(82,201,142,.04);
-    }
-
-    .step-icon {
-      width: 30px;
-      height: 30px;
-      display: grid;
-      place-items: center;
-      border-radius: 50%;
-      background: rgba(132,145,156,.16);
-      color: var(--muted);
-      font-weight: 700;
-    }
-
-    .task-step.completed .step-icon {
-      background: rgba(82,201,142,.18);
-      color: var(--accent);
-    }
-
-    .task-step.active .step-icon {
-      background: rgba(157,241,192,.18);
-      color: var(--accent);
-      animation: pulseDot 1.3s infinite;
-    }
-
-    .step-copy {
-      min-width: 0;
-    }
-
-    .step-label {
-      margin: 0;
-      font-size: 14px;
-      color: var(--ink);
-    }
-
-    .step-detail {
-      margin-top: 4px;
-      font-size: 12px;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-
-    .step-time {
-      color: var(--faint);
-      font: 11px 'DM Mono', monospace;
-      white-space: nowrap;
-    }
-
-    .side-panel {
-      display: grid;
-      gap: 20px;
-    }
-
-    .info-panel {
-      padding: 20px;
-    }
-
-    .panel-title {
-      margin: 0 0 18px;
-      color: var(--muted);
-      font: 11px 'DM Mono', monospace;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-
-    .value-stack {
-      display: grid;
-      gap: 12px;
-    }
-
-    .value-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .value-row strong {
-      color: var(--ink);
-      font-weight: 600;
-    }
-
-    .log-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: grid;
-      gap: 10px;
-    }
-
-    .log-list li {
-      position: relative;
-      padding-left: 16px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.6;
-    }
-
-    .log-list li::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 9px;
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 0 4px rgba(157,241,192,.08);
-    }
-
-    @keyframes floatRobot {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-6px); }
-    }
-
-    @keyframes pulseDot {
-      0%, 100% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(1.08); opacity: 0.7; }
-    }
-
-    @media (max-width: 860px) {
-      .sim-grid {
-        grid-template-columns: 1fr;
-      }
-      .sim-topbar {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-    }
+    body { background: #0b1114; }
+    .sim-shell { max-width: 980px; margin: 0 auto; padding: 28px 18px 60px; }
+    .sim-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .sim-brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: .04em; }
+    .brand-mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; background: var(--accent); color: #0b1114; font: 500 11px 'DM Mono', monospace; }
+    .back-link { display: inline-flex; align-items: center; justify-content: center; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-decoration: none; background: rgba(17,25,30,.7); }
+    .panel { background: rgba(17,25,30,.82); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 40px rgba(0,0,0,.14); }
+    .robot-panel { padding: 20px; }
+    .robot-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+    .robot-title { display: flex; align-items: center; gap: 14px; }
+    .robot-avatar { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 18px; background: linear-gradient(135deg, var(--accent), #7dd9ff); color: #0b1114; font-size: 28px; box-shadow: 0 0 18px rgba(157,241,192,.18); }
+    .robot-name { margin: 0; font-size: clamp(22px, 2.6vw, 30px); letter-spacing: -.04em; }
+    .tool-chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font: 10px 'DM Mono', monospace; background: rgba(11,17,20,.45); }
+    .status-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; border: 1px solid rgba(157,241,192,.35); color: var(--accent); font: 10px 'DM Mono', monospace; background: rgba(157,241,192,.08); }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; }
+    .progress-box { margin: 12px 0 18px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(11,17,20,.45); }
+    .progress-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: var(--muted); font: 11px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .progress-track { width: 100%; height: 12px; overflow: hidden; border-radius: 999px; background: rgba(132,145,156,.18); }
+    .progress-fill { display: block; height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #7dd9ff); box-shadow: 0 0 18px rgba(157,241,192,.2); transition: width .7s ease; }
+    .task-flow { display: grid; gap: 12px; }
+    .task-step { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(11,17,20,.35); opacity: .82; }
+    .task-step.active { border-color: rgba(157,241,192,.45); background: rgba(157,241,192,.04); opacity: 1; }
+    .task-step.completed { border-color: rgba(82,201,142,.32); background: rgba(82,201,142,.04); }
+    .step-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: rgba(132,145,156,.18); color: var(--muted); font-weight: 700; }
+    .task-step.completed .step-icon { background: rgba(82,201,142,.18); color: var(--accent); }
+    .task-step.active .step-icon { background: rgba(157,241,192,.18); color: var(--accent); animation: pulseDot 1.3s infinite; }
+    .step-copy { min-width: 0; }
+    .step-label { margin: 0; font-size: 14px; color: var(--ink); }
+    .step-detail { margin-top: 4px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .step-time { color: var(--faint); font: 11px 'DM Mono', monospace; white-space: nowrap; }
+    .summary-panel { margin-top: 20px; padding: 18px 20px; }
+    .summary-title { margin: 0 0 14px; color: var(--muted); font: 11px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .12em; }
+    .summary-block { display: grid; gap: 10px; }
+    .summary-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 10px; color: var(--muted); font-size: 13px; }
+    .summary-row strong { color: var(--ink); font-weight: 600; }
+    .log-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    .log-list li { position: relative; padding-left: 16px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .log-list li::before { content: ''; position: absolute; left: 0; top: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(157,241,192,.08); }
+    @keyframes pulseDot { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: .7; } }
+    @media (max-width: 700px) { .sim-topbar { flex-direction: column; align-items: flex-start; } .robot-header { align-items: flex-start; } .task-step { grid-template-columns: 34px 1fr; } .step-time { grid-column: 2; } }
   </style>
 </head>
 <body>
   <div class="sim-shell">
     <div class="sim-topbar">
-      <div class="sim-brand">
-        <span class="brand-mark">6G</span>
-        <span>MCP Robot Simulation</span>
-      </div>
+      <div class="sim-brand"><span class="brand-mark">6G</span><span>Robot execution</span></div>
       <a class="back-link" href="/">← Back to chat</a>
     </div>
 
-    <div class="sim-grid">
-      <section class="panel robot-panel">
-        <div class="robot-header">
-          <div class="robot-title">
-            <div class="robot-avatar" aria-label="Robot">🤖</div>
-            <div>
-              <h1 class="robot-name" id="robotName">Loading...</h1>
-              <div class="robot-meta">
-                <span class="mini-chip" id="robotStatus">Waiting</span>
-                <span class="mini-chip" id="mcpTool">Tool: --</span>
-              </div>
-            </div>
+    <section class="panel robot-panel">
+      <div class="robot-header">
+        <div class="robot-title">
+          <div class="robot-avatar">🤖</div>
+          <div>
+            <h1 class="robot-name" id="robotName">Loading...</h1>
+            <div class="tool-chip" id="mcpTool">Tool: --</div>
           </div>
-          <div class="mini-chip" id="batteryChip">Battery: --</div>
         </div>
+        <div class="status-chip"><span class="status-dot"></span><span id="robotStatus">Waiting</span></div>
+      </div>
 
-        <div class="progress-box">
-          <div class="progress-head">
-            <span>Execution progress</span>
-            <strong id="progressPercent">0%</strong>
-          </div>
-          <div class="progress-track"><span id="progressFill" class="progress-fill"></span></div>
+      <div class="progress-box">
+        <div class="progress-head">
+          <span>Execution progress</span>
+          <strong id="progressPercent">0%</strong>
         </div>
+        <div class="progress-track"><span id="progressFill" class="progress-fill"></span></div>
+      </div>
 
-        <div class="task-flow" id="taskFlow"></div>
-      </section>
+      <div class="task-flow" id="taskFlow"></div>
+    </section>
 
-      <aside class="side-panel">
-        <section class="panel info-panel">
-          <h2 class="panel-title">Task details</h2>
-          <div class="value-stack">
-            <div class="value-row"><span>Task ID</span><strong id="taskId">--</strong></div>
-            <div class="value-row"><span>Current task</span><strong id="currentTask">--</strong></div>
-            <div class="value-row"><span>Start time</span><strong id="startTime">--</strong></div>
-            <div class="value-row"><span>End time</span><strong id="endTime">--</strong></div>
-            <div class="value-row"><span>Location</span><strong id="robotLocation">--</strong></div>
-            <div class="value-row"><span>Last update</span><strong id="lastUpdate">--</strong></div>
-          </div>
-        </section>
+    <section class="panel summary-panel">
+      <h2 class="summary-title">Current operation</h2>
+      <div class="summary-block">
+        <div class="summary-row"><span>Task</span><strong id="currentTask">--</strong></div>
+        <div class="summary-row"><span>Summary</span><strong id="taskSummary">--</strong></div>
+        <div class="summary-row"><span>Updated</span><strong id="lastUpdate">--</strong></div>
+      </div>
+    </section>
 
-        <section class="panel info-panel">
-          <h2 class="panel-title">Execution log</h2>
-          <ul class="log-list" id="logList"></ul>
-        </section>
-      </aside>
-    </div>
+    <section class="panel summary-panel">
+      <h2 class="summary-title">Execution log</h2>
+      <ul class="log-list" id="logList"></ul>
+    </section>
   </div>
 
   <script>
-    const state = { activeStep: 0, timer: null };
+    const state = { activeStep: 0 };
 
-    function updateStepView(steps) {
+    function updateSteps(steps) {
       const flow = document.getElementById('taskFlow');
-      flow.innerHTML = steps.map((step, index) => {
+      flow.innerHTML = (steps || []).map((step, index) => {
         const isActive = index === state.activeStep;
         const isCompleted = index < state.activeStep;
         const icon = isCompleted ? '✓' : isActive ? '•' : '○';
@@ -402,36 +119,24 @@
       const response = await fetch('/api/robot-simulation');
       const data = await response.json();
 
-      document.getElementById('robotName').textContent = data.robot.name;
-      document.getElementById('robotStatus').textContent = data.robot.status;
-      document.getElementById('mcpTool').textContent = `Tool: ${data.robot.mcp_tool}`;
-      document.getElementById('batteryChip').textContent = `Battery: ${data.robot.battery}`;
-      document.getElementById('taskId').textContent = data.task.id;
-      document.getElementById('currentTask').textContent = data.task.title;
-      document.getElementById('startTime').textContent = data.task.start_time;
-      document.getElementById('endTime').textContent = data.task.end_time;
-      document.getElementById('robotLocation').textContent = data.robot.location;
-      document.getElementById('lastUpdate').textContent = data.summary.last_update;
-      document.getElementById('progressPercent').textContent = `${data.progress}%`;
-      document.getElementById('progressFill').style.width = `${data.progress}%`;
+      document.getElementById('robotName').textContent = data.robot.name || 'Robot';
+      document.getElementById('mcpTool').textContent = `Tool: ${data.robot.mcp_tool || 'unknown'}`;
+      document.getElementById('robotStatus').textContent = data.robot.status || 'Idle';
+      document.getElementById('progressPercent').textContent = `${data.progress || 0}%`;
+      document.getElementById('progressFill').style.width = `${data.progress || 0}%`;
+      document.getElementById('currentTask').textContent = data.task.title || 'No active task';
+      document.getElementById('taskSummary').textContent = data.task.summary || 'No MCP execution has been recorded yet.';
+      document.getElementById('lastUpdate').textContent = data.summary.last_update || '--:--';
 
       state.activeStep = data.active_step || 0;
-      updateStepView(data.steps || []);
+      updateSteps(data.steps || []);
 
       const logList = document.getElementById('logList');
       logList.innerHTML = (data.logs || []).map((log) => `<li>${log}</li>`).join('');
-
-      const stepList = data.steps || [];
-      if (stepList.length > 0) {
-        const current = stepList[state.activeStep];
-        if (current) {
-          document.getElementById('robotStatus').textContent = current.status === 'active' ? 'Executing' : current.status === 'completed' ? 'Completed' : 'Waiting';
-        }
-      }
     }
 
     loadSimulation();
-    setInterval(loadSimulation, 5000);
+    setInterval(loadSimulation, 4000);
   </script>
 </body>
 </html>

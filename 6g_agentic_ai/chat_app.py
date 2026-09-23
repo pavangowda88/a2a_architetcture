@@ -316,11 +316,35 @@ def _is_dangerous(name: str) -> bool:
     return name in {"register", "assign_task", "end_task_session", "end_all_task_sessions"}
 
 
+def _extract_execution_identity(tool_name: str | None, last_step: dict[str, Any] | None) -> tuple[str, str | None]:
+    payload = last_step or {}
+    tool_input = payload.get("input") or {}
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+
+    robot_name = (
+        tool_input.get("agent_id")
+        or tool_input.get("robot_id")
+        or tool_input.get("robot_name")
+        or tool_input.get("name")
+        or "Robot"
+    )
+    task_id = (
+        tool_input.get("task_id")
+        or tool_input.get("session_id")
+        or tool_input.get("id")
+        or payload.get("task_id")
+        or payload.get("session_id")
+        or (tool_name and f"{tool_name.upper()}-{int(time.time()) % 10000:04d}")
+    )
+    return str(robot_name), str(task_id) if task_id is not None else None
+
+
 def _coerce_tool_run_steps(tool_name: str | None, steps: list[dict[str, Any]] | None) -> dict[str, Any]:
     if not steps:
         return {
-            "robot": {"name": "R-17", "status": "Idle", "battery": "84%", "location": "Warehouse Bay 3", "mcp_tool": tool_name or "assign_task"},
-            "task": {"id": "TASK-0000", "title": "No active task", "summary": "No MCP execution has been recorded yet.", "start_time": "--:--", "end_time": "--:--"},
+            "robot": {"name": "Robot", "status": "Idle", "mcp_tool": tool_name or "assign_task"},
+            "task": {"title": "No active task", "summary": "No MCP execution has been recorded yet."},
             "progress": 0,
             "active_step": 0,
             "steps": [
@@ -336,41 +360,35 @@ def _coerce_tool_run_steps(tool_name: str | None, steps: list[dict[str, Any]] | 
 
     last_step = steps[-1]
     tool_name = tool_name or last_step.get("tool") or "mcp_tool"
-    step_map = {
-        "receive-task": {"status": "completed", "details": "Task request was received by the app."},
-        "select-tool": {"status": "completed", "details": f"Selected MCP tool: {tool_name}."},
-        "mcp-request": {"status": "completed" if last_step.get("status") in {"completed", "error"} else "active", "details": "The MCP gateway request was executed and the result is being processed."},
-        "robot-action": {"status": "active" if last_step.get("status") == "completed" else "pending", "details": "The robot is acting on the selected tool and payload."},
-        "result": {"status": "completed" if last_step.get("status") == "completed" else "pending", "details": ("The MCP result was returned successfully." if last_step.get("status") == "completed" else "Waiting for the final result.")},
-    }
-
-    if last_step.get("status") == "error":
-        step_map["result"] = {"status": "pending", "details": f"The last run failed: {last_step.get('error', 'MCP execution failed')}"}
-
+    robot_name, task_id = _extract_execution_identity(tool_name, last_step)
     step_time = time.strftime("%H:%M:%S")
+    is_done = last_step.get("status") == "completed"
+    is_error = last_step.get("status") == "error"
+
     step_defs = [
-        {"id": "receive-task", "label": "Robot receives task", "status": "completed", "time": step_time, "details": "The user request was accepted and parsed."},
-        {"id": "select-tool", "label": "Tool selected", "status": step_map["select-tool"]["status"], "time": step_time, "details": step_map["select-tool"]["details"]},
-        {"id": "mcp-request", "label": "MCP request sent", "status": step_map["mcp-request"]["status"], "time": step_time, "details": step_map["mcp-request"]["details"]},
-        {"id": "robot-action", "label": "Robot executes action", "status": step_map["robot-action"]["status"], "time": step_time, "details": step_map["robot-action"]["details"]},
-        {"id": "result", "label": "Result returned", "status": step_map["result"]["status"], "time": step_time, "details": step_map["result"]["details"]},
+        {"id": "receive-task", "label": "Robot receives task", "status": "completed", "time": step_time, "details": "Request accepted and parsed."},
+        {"id": "select-tool", "label": "Tool selected", "status": "completed", "time": step_time, "details": f"Selected MCP tool: {tool_name}."},
+        {"id": "mcp-request", "label": "MCP request sent", "status": "completed" if is_done or is_error else "active", "time": step_time, "details": "MCP gateway call was sent."},
+        {"id": "robot-action", "label": "Robot executes action", "status": "active" if not is_done and not is_error else "completed" if is_done else "pending", "time": step_time, "details": "Robot is executing the requested action."},
+        {"id": "result", "label": "Result returned", "status": "completed" if is_done else "pending" if not is_error else "pending", "time": step_time, "details": ("The result was returned successfully." if is_done else (last_step.get("error") or "Waiting for final output."))},
     ]
-    progress = 100 if last_step.get("status") == "completed" else 70 if any(step.get("status") == "completed" for step in steps) else 35
-    status_text = "Completed" if last_step.get("status") == "completed" else "Running" if any(step.get("status") == "completed" for step in steps) else "Queued"
+
+    progress = 100 if is_done else 70 if any(step.get("status") == "completed" for step in step_defs) else 35
+    status_text = "Completed" if is_done else "Running" if any(step.get("status") == "completed" for step in step_defs) else "Queued"
     return {
-        "robot": {"name": "R-17", "status": status_text, "battery": "84%", "location": "Warehouse Bay 3", "mcp_tool": tool_name},
-        "task": {"id": "TASK-" + str(int(time.time()) % 10000).zfill(4), "title": f"{tool_name} execution", "summary": f"Live MCP run for {tool_name}.", "start_time": time.strftime("%H:%M:%S"), "end_time": time.strftime("%H:%M:%S")},
+        "robot": {"name": robot_name, "status": status_text, "mcp_tool": tool_name},
+        "task": {"id": task_id, "title": f"{tool_name} execution", "summary": f"Live MCP call for {tool_name}.", "start_time": step_time, "end_time": step_time},
         "progress": progress,
         "active_step": 2 if status_text != "Completed" else 4,
         "steps": step_defs,
         "logs": [
             f"Task accepted for {tool_name}",
-            f"Matched MCP tool: {tool_name}",
-            "MCP gateway request sent",
-            "Robot actuator loop engaged",
-            ("MCP result returned successfully." if last_step.get("status") == "completed" else "Final response pending"),
+            f"MCP tool matched: {tool_name}",
+            "Request forwarded to the gateway",
+            "Robot loop is running",
+            ("Execution completed successfully." if is_done else (last_step.get("error") or "Final result pending")),
         ],
-        "summary": {"status": status_text, "result": last_step.get("output") if last_step.get("status") == "completed" else (last_step.get("error") or "Execution in progress"), "last_update": step_time},
+        "summary": {"status": status_text, "result": last_step.get("output") if is_done else (last_step.get("error") or "Execution in progress"), "last_update": step_time},
     }
 
 
@@ -493,20 +511,8 @@ async def robot_simulation() -> dict[str, Any]:
         return normalized
 
     return {
-        "robot": {
-            "name": "R-17",
-            "status": "Idle",
-            "battery": "84%",
-            "location": "Warehouse Bay 3",
-            "mcp_tool": "assign_task"
-        },
-        "task": {
-            "id": "TASK-2048",
-            "title": "Pick-and-place workflow",
-            "summary": "Move package A-204 from shelf A2 to the outbound dock.",
-            "start_time": "09:14:12",
-            "end_time": "09:15:05"
-        },
+        "robot": {"name": "Robot", "status": "Idle", "mcp_tool": "assign_task"},
+        "task": {"title": "Waiting for task", "summary": "No MCP execution has been captured yet.", "start_time": "--:--", "end_time": "--:--"},
         "progress": 0,
         "active_step": 0,
         "steps": [

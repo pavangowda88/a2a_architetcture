@@ -28,6 +28,7 @@ MCP_URL = os.getenv("MCP_URL", f"{settings.BASE_URI}:8010/mcp")
 _oauth = OAuthClient("mcp-server", settings.client_credentials("mcp-server")[1])
 _pending: dict[str, dict[str, Any]] = {}
 _conversation_history: dict[str, list[dict[str, str]]] = {}
+_latest_execution: dict[str, Any] = {}
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
 LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
@@ -315,10 +316,72 @@ def _is_dangerous(name: str) -> bool:
     return name in {"register", "assign_task", "end_task_session", "end_all_task_sessions"}
 
 
+def _coerce_tool_run_steps(tool_name: str | None, steps: list[dict[str, Any]] | None) -> dict[str, Any]:
+    if not steps:
+        return {
+            "robot": {"name": "R-17", "status": "Idle", "battery": "84%", "location": "Warehouse Bay 3", "mcp_tool": tool_name or "assign_task"},
+            "task": {"id": "TASK-0000", "title": "No active task", "summary": "No MCP execution has been recorded yet.", "start_time": "--:--", "end_time": "--:--"},
+            "progress": 0,
+            "active_step": 0,
+            "steps": [
+                {"id": "receive-task", "label": "Robot receives task", "status": "pending", "time": "--:--", "details": "Waiting for the next MCP call."},
+                {"id": "select-tool", "label": "Tool selected", "status": "pending", "time": "--:--", "details": "No MCP tool has been selected yet."},
+                {"id": "mcp-request", "label": "MCP request sent", "status": "pending", "time": "--:--", "details": "No request is active right now."},
+                {"id": "robot-action", "label": "Robot executes action", "status": "pending", "time": "--:--", "details": "Awaiting tool execution."},
+                {"id": "result", "label": "Result returned", "status": "pending", "time": "--:--", "details": "No output has been emitted yet."},
+            ],
+            "logs": ["No MCP execution has been captured yet."],
+            "summary": {"status": "Idle", "result": "No active run", "last_update": "--:--"},
+        }
+
+    last_step = steps[-1]
+    tool_name = tool_name or last_step.get("tool") or "mcp_tool"
+    step_map = {
+        "receive-task": {"status": "completed", "details": "Task request was received by the app."},
+        "select-tool": {"status": "completed", "details": f"Selected MCP tool: {tool_name}."},
+        "mcp-request": {"status": "completed" if last_step.get("status") in {"completed", "error"} else "active", "details": "The MCP gateway request was executed and the result is being processed."},
+        "robot-action": {"status": "active" if last_step.get("status") == "completed" else "pending", "details": "The robot is acting on the selected tool and payload."},
+        "result": {"status": "completed" if last_step.get("status") == "completed" else "pending", "details": ("The MCP result was returned successfully." if last_step.get("status") == "completed" else "Waiting for the final result.")},
+    }
+
+    if last_step.get("status") == "error":
+        step_map["result"] = {"status": "pending", "details": f"The last run failed: {last_step.get('error', 'MCP execution failed')}"}
+
+    step_time = time.strftime("%H:%M:%S")
+    step_defs = [
+        {"id": "receive-task", "label": "Robot receives task", "status": "completed", "time": step_time, "details": "The user request was accepted and parsed."},
+        {"id": "select-tool", "label": "Tool selected", "status": step_map["select-tool"]["status"], "time": step_time, "details": step_map["select-tool"]["details"]},
+        {"id": "mcp-request", "label": "MCP request sent", "status": step_map["mcp-request"]["status"], "time": step_time, "details": step_map["mcp-request"]["details"]},
+        {"id": "robot-action", "label": "Robot executes action", "status": step_map["robot-action"]["status"], "time": step_time, "details": step_map["robot-action"]["details"]},
+        {"id": "result", "label": "Result returned", "status": step_map["result"]["status"], "time": step_time, "details": step_map["result"]["details"]},
+    ]
+    progress = 100 if last_step.get("status") == "completed" else 70 if any(step.get("status") == "completed" for step in steps) else 35
+    status_text = "Completed" if last_step.get("status") == "completed" else "Running" if any(step.get("status") == "completed" for step in steps) else "Queued"
+    return {
+        "robot": {"name": "R-17", "status": status_text, "battery": "84%", "location": "Warehouse Bay 3", "mcp_tool": tool_name},
+        "task": {"id": "TASK-" + str(int(time.time()) % 10000).zfill(4), "title": f"{tool_name} execution", "summary": f"Live MCP run for {tool_name}.", "start_time": time.strftime("%H:%M:%S"), "end_time": time.strftime("%H:%M:%S")},
+        "progress": progress,
+        "active_step": 2 if status_text != "Completed" else 4,
+        "steps": step_defs,
+        "logs": [
+            f"Task accepted for {tool_name}",
+            f"Matched MCP tool: {tool_name}",
+            "MCP gateway request sent",
+            "Robot actuator loop engaged",
+            ("MCP result returned successfully." if last_step.get("status") == "completed" else "Final response pending"),
+        ],
+        "summary": {"status": status_text, "result": last_step.get("output") if last_step.get("status") == "completed" else (last_step.get("error") or "Execution in progress"), "last_update": step_time},
+    }
+
+
 async def _handle_chat(request: ChatRequest) -> dict[str, Any]:
     tools = await gateway.tools()
     if LLM_ENABLED:
-        return await _handle_llm_chat(request, tools)
+        response = await _handle_llm_chat(request, tools)
+        if response.get("steps"):
+            _latest_execution["tool_name"] = response["steps"][-1].get("tool")
+            _latest_execution["steps"] = response["steps"]
+        return response
     pending = _pending.get(request.conversation_id)
     if pending and "missing" in pending:
         pending["arguments"][pending["missing"]] = request.message.strip()
@@ -351,9 +414,15 @@ async def _handle_chat(request: ChatRequest) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("MCP chat execution failed: %s", type(exc).__name__)
         error = str(exc) if request.developer_mode else "MCP execution failed"
-        return {"reply": f"I couldn’t complete that request because `{tool['name']}` failed. Check the MCP gateway and try again.", "steps": [{"status": "error", "tool": tool["name"], "input": arguments, "error": error}]}
+        payload = {"status": "error", "tool": tool["name"], "input": arguments, "error": error}
+        _latest_execution["tool_name"] = tool["name"]
+        _latest_execution["steps"] = [payload]
+        return {"reply": f"I couldn’t complete that request because `{tool['name']}` failed. Check the MCP gateway and try again.", "steps": [payload]}
     duration_ms = round((time.perf_counter() - started) * 1000)
-    return {"reply": f"I ran `{tool['name']}` successfully.", "steps": [{"status": "completed", "tool": tool["name"], "input": arguments, "output": result, "duration_ms": duration_ms}]}
+    payload = {"status": "completed", "tool": tool["name"], "input": arguments, "output": result, "duration_ms": duration_ms}
+    _latest_execution["tool_name"] = tool["name"]
+    _latest_execution["steps"] = [payload]
+    return {"reply": f"I ran `{tool['name']}` successfully.", "steps": [payload]}
 
 
 @app.get("/")
@@ -419,10 +488,14 @@ async def robot_sim_page() -> FileResponse:
 
 @app.get("/api/robot-simulation")
 async def robot_simulation() -> dict[str, Any]:
+    if _latest_execution.get("steps"):
+        normalized = _coerce_tool_run_steps(_latest_execution.get("tool_name"), _latest_execution["steps"])
+        return normalized
+
     return {
         "robot": {
             "name": "R-17",
-            "status": "Executing task",
+            "status": "Idle",
             "battery": "84%",
             "location": "Warehouse Bay 3",
             "mcp_tool": "assign_task"
@@ -434,58 +507,20 @@ async def robot_simulation() -> dict[str, Any]:
             "start_time": "09:14:12",
             "end_time": "09:15:05"
         },
-        "progress": 68,
-        "active_step": 2,
+        "progress": 0,
+        "active_step": 0,
         "steps": [
-            {
-                "id": "receive-task",
-                "label": "Robot receives task",
-                "status": "completed",
-                "time": "09:14:12",
-                "details": "Supervisor assignment received and validated."
-            },
-            {
-                "id": "select-tool",
-                "label": "Tool selected",
-                "status": "completed",
-                "time": "09:14:14",
-                "details": "The assign_task MCP tool was selected for the move request."
-            },
-            {
-                "id": "mcp-request",
-                "label": "MCP request sent",
-                "status": "active",
-                "time": "09:14:16",
-                "details": "JSON-RPC call sent to the backend MCP gateway with payload and route constraints."
-            },
-            {
-                "id": "robot-action",
-                "label": "Robot executes action",
-                "status": "pending",
-                "time": "--:--",
-                "details": "Robot is traversing shelf A2 and preparing the package handoff."
-            },
-            {
-                "id": "result",
-                "label": "Result returned",
-                "status": "pending",
-                "time": "--:--",
-                "details": "Task status and outcome will be returned by the MCP tool."
-            }
+            {"id": "receive-task", "label": "Robot receives task", "status": "pending", "time": "--:--", "details": "Waiting for the next MCP call."},
+            {"id": "select-tool", "label": "Tool selected", "status": "pending", "time": "--:--", "details": "No MCP tool has been selected yet."},
+            {"id": "mcp-request", "label": "MCP request sent", "status": "pending", "time": "--:--", "details": "No request is active right now."},
+            {"id": "robot-action", "label": "Robot executes action", "status": "pending", "time": "--:--", "details": "Awaiting tool execution."},
+            {"id": "result", "label": "Result returned", "status": "pending", "time": "--:--", "details": "No output has been emitted yet."}
         ],
         "logs": [
-            "Task accepted by robot scheduler",
-            "Matching MCP tool: assign_task",
-            "Auth check passed for robot control channel",
-            "Warehouse route optimized for shortest path",
-            "Package sensor confirmed item A-204 is in reach",
-            "Execution in progress"
+            "No MCP execution has been captured yet.",
+            "The simulation will update after the next tool call."
         ],
-        "summary": {
-            "status": "Running",
-            "result": "Package transfer still in progress",
-            "last_update": "09:14:18"
-        }
+        "summary": {"status": "Idle", "result": "No active run", "last_update": "--:--"}
     }
 
 

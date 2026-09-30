@@ -957,19 +957,61 @@ async def list_active_sessions() -> dict:
             data = resp.json()
             sessions = data.get("result", [])
             session = await _record_session("mcp-server", "list_active_sessions", {"supervisor_count": len(sessions)})
-            sanitized = [_sanitize_session(dict(s)) for s in sessions]
+            sanitized = []
+            for s in sessions:
+                clean = _sanitize_session(dict(s))
+                sanitized.append({
+                    "imsi": clean.get("imsi", "-"),
+                    "service": clean.get("service", "6G_ROBOTICS_SLICE"),
+                    "status": clean.get("status", "active"),
+                    "updated_at": clean.get("updated_at", "-"),
+                })
+
             stored_sessions = await database.db.mcp_sessions.find({"status": "active"}).to_list(length=100)
-            sanitized.extend(_sanitize_session(dict(s)) for s in stored_sessions)
+            for s in stored_sessions:
+                clean = _sanitize_session(dict(s))
+                details = clean.get("details") or {}
+                req = details.get("request") or {}
+                req_params = req.get("params") or {}
+                res = details.get("result") or {}
+                res_inner = res.get("result") or {}
+                imsi = (
+                    clean.get("imsi")
+                    or req_params.get("imsi")
+                    or res_inner.get("imsi")
+                    or res.get("imsi")
+                    or details.get("imsi")
+                    or "-"
+                )
+                service = (
+                    clean.get("service")
+                    or req_params.get("service_type")
+                    or req_params.get("service")
+                    or res_inner.get("service_plan")
+                    or res.get("service_plan")
+                    or clean.get("operation", "session")
+                )
+                sanitized.append({
+                    "imsi": imsi,
+                    "service": service,
+                    "agent_id": clean.get("agent_id", "-"),
+                    "operation": clean.get("operation", "-"),
+                    "status": clean.get("status", "active"),
+                    "started_at": clean.get("started_at", "-"),
+                })
+
             task_sessions = await database.db.tasks.find({}).to_list(length=1000)
-            sanitized.extend({
-                "task_session_id": task.get("session_id"),
-                "agent_id": task.get("agent_id"),
-                "operation": "task",
-                "task_id": task.get("task_id"),
-                "status": task.get("status"),
-                "started_at": task.get("created_at"),
-                "updated_at": task.get("activated_at", task.get("created_at")),
-            } for task in task_sessions if task.get("status") in {"active", "queued", "accepted"})
+            for task in task_sessions:
+                if task.get("status") in {"active", "queued", "accepted"}:
+                    sanitized.append({
+                        "imsi": task.get("imsi", "-"),
+                        "service": task.get("skill") or task.get("task", "task"),
+                        "agent_id": task.get("agent_id", "-"),
+                        "operation": f"task:{task.get('skill', 'task')}",
+                        "status": task.get("status", "-"),
+                        "started_at": task.get("created_at", "-"),
+                    })
+
             return {"success": True, "sessions": sanitized, "count": len(sanitized)}
     except Exception as exc:
         return _error(str(exc), "supervisor")

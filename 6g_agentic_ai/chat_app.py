@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -34,6 +34,10 @@ LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "https://api.openai.com/v1").rs
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_MAX_TOOL_ROUNDS = int(os.getenv("LLM_MAX_TOOL_ROUNDS", "8"))
 LLM_ENABLED = bool(LLM_API_KEY)
+
+
+class LLMProviderError(RuntimeError):
+    """A safe, actionable failure returned by the configured LLM provider."""
 
 
 class ChatRequest(BaseModel):
@@ -122,6 +126,33 @@ class MCPGateway:
 gateway = MCPGateway(MCP_URL)
 status_gateway = MCPGateway(MCP_URL)
 app.mount("/chat_static", StaticFiles(directory=STATIC_DIR), name="chat_static")
+if (STATIC_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+_active_websockets: list[WebSocket] = []
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    _active_websockets.append(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_text(json.dumps({
+                "id": str(uuid.uuid4()),
+                "timestamp": time.strftime("%H:%M:%S"),
+                "eventType": "NETWORK_EVENT",
+                "source": "WebSocket",
+                "action": f"6G Real-Time Event Stream: {data}",
+                "status": "success"
+            }))
+    except WebSocketDisconnect:
+        if websocket in _active_websockets:
+            _active_websockets.remove(websocket)
+    except Exception:
+        if websocket in _active_websockets:
+            _active_websockets.remove(websocket)
+
 
 
 async def _llm_completion(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
@@ -143,15 +174,24 @@ async def _llm_completion(messages: list[dict[str, Any]], tools: list[dict[str, 
         "temperature": 0.2,
     }
     headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(f"{LLM_API_BASE_URL}/chat/completions", json=payload, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(f"{LLM_API_BASE_URL}/chat/completions", json=payload, headers=headers)
+    except httpx.HTTPError as exc:
+        raise LLMProviderError(f"External LLM request failed ({type(exc).__name__})") from exc
     if response.status_code in {401, 403}:
-        raise RuntimeError("The external LLM rejected the configured API key")
-    response.raise_for_status()
-    data = response.json()
+        raise LLMProviderError("The external LLM rejected the configured API key")
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise LLMProviderError(f"External LLM returned HTTP {response.status_code}") from exc
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise LLMProviderError("The external LLM returned invalid JSON") from exc
     choices = data.get("choices") or []
     if not choices or "message" not in choices[0]:
-        raise RuntimeError("The external LLM returned an invalid response")
+        raise LLMProviderError("The external LLM returned an invalid response")
     return choices[0]["message"]
 
 
@@ -209,13 +249,13 @@ async def _handle_llm_chat(request: ChatRequest, tools: list[dict[str, Any]]) ->
         name = call.get("function", {}).get("name", "")
         tool = _tool_by_name(tools, name)
         if not tool:
-            raise RuntimeError("The external LLM requested an unavailable MCP tool")
+            raise LLMProviderError("The external LLM requested an unavailable MCP tool")
         try:
             arguments = json.loads(call.get("function", {}).get("arguments") or "{}")
         except json.JSONDecodeError as exc:
-            raise RuntimeError("The external LLM returned invalid tool arguments") from exc
+            raise LLMProviderError("The external LLM returned invalid tool arguments") from exc
         if not isinstance(arguments, dict):
-            raise RuntimeError("The external LLM returned invalid tool arguments")
+            raise LLMProviderError("The external LLM returned invalid tool arguments")
         missing = _missing(tool, arguments)
         if missing:
             reply = f"Which {_display_name(missing)} should I use?"
@@ -236,7 +276,7 @@ async def _handle_llm_chat(request: ChatRequest, tools: list[dict[str, Any]]) ->
             {"role": "tool", "tool_call_id": call.get("id", str(uuid.uuid4())), "content": json.dumps(result, default=str)},
         ])
 
-    raise RuntimeError("The external LLM exceeded the maximum MCP tool rounds")
+    raise LLMProviderError("The external LLM exceeded the maximum MCP tool rounds")
 
 
 def _words(value: str) -> set[str]:
@@ -477,6 +517,9 @@ async def status() -> dict[str, Any]:
 async def chat(request: ChatRequest) -> dict[str, Any]:
     try:
         return await _handle_chat(request)
+    except LLMProviderError as exc:
+        logger.warning("LLM chat request failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:

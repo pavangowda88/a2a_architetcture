@@ -38,14 +38,14 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
   const getStation = (id: StationId) => stations.find((s) => s.id === id);
 
   return (
-    <div className="relative w-full h-full bg-[#080b12] rounded-2xl border border-slate-800/90 overflow-hidden flex flex-col justify-between shadow-2xl select-none">
+    <div className="factory-canvas relative w-full h-full bg-[#080b12] rounded-2xl border border-slate-800/90 overflow-hidden flex flex-col justify-between shadow-2xl select-none">
       {/* Background Grid Pattern & Industrial Overlay */}
       <div
-        className="absolute inset-0 opacity-15 pointer-events-none"
+        className="factory-grid-overlay absolute inset-0 opacity-15 pointer-events-none"
         style={{
           backgroundImage: `
-            linear-gradient(to right, #38bdf8 1px, transparent 1px),
-            linear-gradient(to bottom, #38bdf8 1px, transparent 1px)
+            linear-gradient(to right, rgba(120, 205, 187, 0.45) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(120, 205, 187, 0.45) 1px, transparent 1px)
           `,
           backgroundSize: '30px 30px',
         }}
@@ -55,13 +55,13 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10 pointer-events-none">
         <div className="flex items-center space-x-2 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 text-xs font-mono">
           <Activity className="w-4 h-4 text-sky-400 animate-pulse" />
-          <span className="text-slate-300 font-semibold">DIGITAL TWIN REAL-TIME MODEL</span>
+          <span className="text-slate-300 font-semibold">FACTORY FLOOR · LINE 01</span>
         </div>
 
         <div className="flex items-center space-x-2 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 text-xs font-mono">
-          <span className="text-slate-400">CONVEYOR SPEED:</span>
-          <span className={`font-bold ${activeConveyor ? 'text-emerald-400' : 'text-slate-500'}`}>
-            {activeConveyor ? '1.4 M/S (ACTIVE)' : 'STOPPED'}
+          <span className="text-slate-400">CONVEYOR</span>
+          <span className={`font-medium ${activeConveyor ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {activeConveyor ? 'Running · 1.4 m/s' : 'Paused'}
           </span>
         </div>
       </div>
@@ -72,9 +72,9 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
         <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
           <defs>
             <linearGradient id="conveyorGlow" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.8" />
-              <stop offset="50%" stopColor="#10b981" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#a855f7" stopOpacity="0.8" />
+              <stop offset="0%" stopColor="#64b6af" stopOpacity="0.64" />
+              <stop offset="50%" stopColor="#91d5b1" stopOpacity="0.66" />
+              <stop offset="100%" stopColor="#64b6af" stopOpacity="0.64" />
             </linearGradient>
           </defs>
 
@@ -148,11 +148,11 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
         </svg>
 
         {/* ---------------- STATIONS LAYER ---------------- */}
-        <div className="relative w-full h-full z-10 grid grid-cols-4 gap-4 items-center">
+        <div className="factory-stations-layer relative w-full h-full z-10 grid grid-cols-4 gap-4 items-center">
           {/* Station 1: Raw Material */}
           <div
             onClick={() => onSelectStation(stations[0])}
-            className="group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border border-slate-700/80 hover:border-sky-500/50 p-4 rounded-2xl transition-all shadow-xl hover:shadow-sky-500/10 flex flex-col justify-between min-h-[160px]"
+            className="factory-station group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border border-slate-700/80 hover:border-sky-500/50 p-4 rounded-2xl transition-all shadow-xl hover:shadow-sky-500/10 flex flex-col justify-between min-h-[160px]"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -180,7 +180,7 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
                       e.stopPropagation();
                       onSelectPackage(pkg);
                     }}
-                    className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-mono px-2 py-1 rounded-md flex items-center space-x-1 animate-pulse"
+                    className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-mono px-2 py-1 rounded-md flex items-center space-x-1"
                   >
                     <PackageIcon className="w-3 h-3" />
                     <span>{pkg.name}</span>
@@ -193,16 +193,13 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
 
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800 pt-2">
               <span>STORAGE: 4/10</span>
-              <span className="text-sky-400 font-semibold group-hover:translate-x-1 transition-transform">
-                INSPECT ➔
-              </span>
-            </div>
+              </div>
           </div>
 
           {/* Station 2: Assembly Area */}
           <div
             onClick={() => onSelectStation(stations[1])}
-            className="group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border border-slate-700/80 hover:border-emerald-500/50 p-4 rounded-2xl transition-all shadow-xl hover:shadow-emerald-500/10 flex flex-col justify-between min-h-[160px]"
+            className="factory-station group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border border-slate-700/80 hover:border-emerald-500/50 p-4 rounded-2xl transition-all shadow-xl hover:shadow-emerald-500/10 flex flex-col justify-between min-h-[160px]"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -242,16 +239,13 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
 
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800 pt-2">
               <span>TOOL: WELD / JOIN</span>
-              <span className="text-emerald-400 font-semibold group-hover:translate-x-1 transition-transform">
-                INSPECT ➔
-              </span>
-            </div>
+              </div>
           </div>
 
           {/* Station 3: 6G Laser Inspection */}
           <div
             onClick={() => onSelectStation(stations[2])}
-            className={`group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border p-4 rounded-2xl transition-all shadow-xl flex flex-col justify-between min-h-[160px] ${
+            className={`factory-station group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border p-4 rounded-2xl transition-all shadow-xl flex flex-col justify-between min-h-[160px] ${
               laserScanning
                 ? 'border-purple-500/80 ring-2 ring-purple-500/40 shadow-purple-500/20'
                 : 'border-slate-700/80 hover:border-purple-500/50'
@@ -301,16 +295,13 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
 
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800 pt-2">
               <span>LATENCY: 12ms</span>
-              <span className="text-purple-400 font-semibold group-hover:translate-x-1 transition-transform">
-                INSPECT ➔
-              </span>
             </div>
           </div>
 
           {/* Station 4: Packaging Area */}
           <div
             onClick={() => onSelectStation(stations[3])}
-            className="group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border border-slate-700/80 hover:border-cyan-500/50 p-4 rounded-2xl transition-all shadow-xl hover:shadow-cyan-500/10 flex flex-col justify-between min-h-[160px]"
+            className="factory-station group cursor-pointer bg-slate-900/80 hover:bg-slate-800/90 border border-slate-700/80 hover:border-cyan-500/50 p-4 rounded-2xl transition-all shadow-xl hover:shadow-cyan-500/10 flex flex-col justify-between min-h-[160px]"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -350,10 +341,7 @@ export const FactoryTwin: React.FC<FactoryTwinProps> = ({
 
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800 pt-2">
               <span>OUTBOUND CONVEYOR</span>
-              <span className="text-cyan-400 font-semibold group-hover:translate-x-1 transition-transform">
-                INSPECT ➔
-              </span>
-            </div>
+              </div>
           </div>
         </div>
 

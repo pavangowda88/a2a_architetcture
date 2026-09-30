@@ -10,6 +10,7 @@ import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SystemLogsPage } from './pages/SystemLogsPage';
 import { RobotDetailModal } from './components/Factory/RobotDetailModal';
 import { ProductionCompleteModal } from './components/Demo/ProductionCompleteModal';
+import { CommandToolStep } from './components/Chat/CommandOutputPanel';
 
 import {
   INITIAL_STATIONS,
@@ -137,6 +138,11 @@ export function App() {
   const [laserScanning, setLaserScanning] = useState(false);
   const [isDemoRunning, setIsDemoRunning] = useState(false);
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
+  const [commandOutput, setCommandOutput] = useState<{
+    command: string;
+    markdown: string;
+    steps: CommandToolStep[];
+  } | null>(null);
 
   // Selected Modal State
   const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null);
@@ -474,6 +480,7 @@ export function App() {
   // ---------------- USER NATURAL LANGUAGE COMMAND HANDLER ----------------
   const handleSubmitCommand = async (command: string) => {
     setIsProcessingCommand(true);
+    setCommandOutput(null);
     addEvent('TASK_CREATED', 'User', `Command: "${command}"`);
 
     // Try real backend first
@@ -481,6 +488,11 @@ export function App() {
     if (backendResult && backendResult.reply) {
       addEvent('AGENT_MESSAGE', 'Supervisor / LLM', backendResult.reply);
     }
+    const steps: CommandToolStep[] = Array.isArray(backendResult?.steps) ? backendResult.steps : [];
+    const markdown = typeof backendResult?.reply === 'string'
+      ? backendResult.reply
+      : '### Backend response unavailable\n\nNo response was received from the MCP chat service. The factory animation may still run locally, but this command was not confirmed by the backend.';
+    setCommandOutput({ command, markdown, steps });
 
     // Trigger demo execution scenario
     if (command.toLowerCase().includes('104') || command.toLowerCase().includes('start')) {
@@ -521,12 +533,11 @@ export function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#080b12] text-slate-100 font-sans">
+    <div className="app-frame flex flex-col h-screen w-screen overflow-hidden bg-[#080b12] text-slate-100 font-sans">
       {/* Top Industrial Header */}
       <Header
         systemStatus="ONLINE"
         mcpConnected={true}
-        networkConnected={true}
         authActive={true}
         onStartDemo={runDemoScenario}
         onSimulateFailure={handleSimulateFailure}
@@ -548,7 +559,6 @@ export function App() {
             stations={stations}
             robots={robots}
             packages={packages}
-            agents={agents}
             pipeline={pipeline}
             events={events}
             activeConveyor={activeConveyor}
@@ -558,7 +568,8 @@ export function App() {
             onSelectRobot={setSelectedRobot}
             onSelectStation={() => {}}
             onSelectPackage={() => {}}
-            onSelectAgent={() => {}}
+            commandOutput={commandOutput}
+            onCloseCommandOutput={() => setCommandOutput(null)}
           />
         )}
 

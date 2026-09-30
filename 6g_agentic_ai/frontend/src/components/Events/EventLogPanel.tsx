@@ -15,7 +15,7 @@ export const EventLogPanel: React.FC<EventLogPanelProps> = ({ events }) => {
   };
 
   return (
-    <div className="bg-[#0b0e17] border-l border-slate-800 p-3 w-80 flex flex-col justify-between select-none">
+    <div className="dashboard-event-panel bg-[#0b0e17] border-l border-slate-800 p-3 w-80 flex flex-col justify-between select-none">
       <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
         <div className="flex items-center space-x-2">
           <Activity className="w-4 h-4 text-sky-400 animate-pulse" />
@@ -41,7 +41,7 @@ export const EventLogPanel: React.FC<EventLogPanelProps> = ({ events }) => {
             return (
               <div
                 key={evt.id}
-                className={`p-2.5 rounded-xl border transition-all ${
+                className={`event-card p-2.5 rounded-xl border transition-all ${
                   isError
                     ? 'bg-rose-950/30 border-rose-500/40 text-rose-200'
                     : evt.eventType.includes('TOOL')

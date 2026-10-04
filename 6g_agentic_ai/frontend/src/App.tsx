@@ -195,7 +195,8 @@ export function App() {
     args: Record<string, any>,
     durationMs: number = 0,
     status: MCPToolCallLog['status'] = 'SUCCESS',
-    result?: unknown
+    result?: unknown,
+    mode?: MCPToolCallLog['mode']
   ) => {
     const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
     const log: MCPToolCallLog = {
@@ -206,6 +207,7 @@ export function App() {
       status,
       executionTimeMs: durationMs,
       result,
+      mode,
     };
     setMcpLogs((prev) => [log, ...prev]);
     setAnalytics((prev) => ({ ...prev, mcpCalls: prev.mcpCalls + 1 }));
@@ -643,10 +645,11 @@ export function App() {
         {currentPage === 'mcp' && (
           <MCPControlPage
             logs={mcpLogs}
-            onExecuteTool={(name, args) => {
-              addMcpLog(name, args);
-              addEvent('TOOL_CALL', 'User', `Executed ${name}`, 'MCP Gateway');
+            onExecuteTool={(name, args, durationMs, status, result) => {
+              addMcpLog(name, args, durationMs, status, result, 'SIMULATION');
+              addEvent('TOOL_CALL', 'Local Simulation', `Simulated ${name}`, 'MCP Gateway', status === 'FAILED' ? 'failed' : 'success');
             }}
+            onClearSimulation={() => setMcpLogs((previous) => previous.filter((log) => log.mode !== 'SIMULATION'))}
           />
         )}
 

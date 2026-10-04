@@ -1,4 +1,4 @@
-import { FactoryEvent, Robot, FactoryAgent, MCPToolCallLog, SecurityStatus } from '../types/factory';
+import { FactoryEvent, Robot, FactoryAgent, MCPToolCallLog, MCPToolDefinition, SecurityStatus } from '../types/factory';
 
 const API_BASE = '/api';
 
@@ -6,6 +6,7 @@ export interface SystemStatusResponse {
   connected: boolean;
   server?: string;
   tool_count?: number;
+  tools?: MCPToolDefinition[];
   llm_enabled?: boolean;
   llm_model?: string | null;
   error?: string;
@@ -26,7 +27,7 @@ export interface ChatResponse {
 
 export async function fetchSystemStatus() {
   try {
-    const res = await fetch(`${API_BASE}/status`);
+    const res = await fetch(`${API_BASE}/status`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json() as SystemStatusResponse;
   } catch {

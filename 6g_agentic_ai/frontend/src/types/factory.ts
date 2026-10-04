@@ -75,6 +75,12 @@ export interface MCPTool {
   category: 'robot' | 'factory' | 'auth' | 'network';
 }
 
+export interface MCPToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, any>;
+}
+
 export interface MCPToolCallLog {
   id: string;
   timestamp: string;
@@ -83,6 +89,7 @@ export interface MCPToolCallLog {
   status: 'SUCCESS' | 'RUNNING' | 'FAILED';
   executionTimeMs: number;
   result?: any;
+  mode?: 'SIMULATION' | 'LIVE';
 }
 
 export interface PipelineStage {

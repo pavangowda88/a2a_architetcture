@@ -1,8 +1,10 @@
 import React from 'react';
 import { CommandBar } from '../components/Chat/CommandBar';
+import { TaskWorkspace, ConversationMessage, TaskRun } from '../components/Chat/TaskWorkspace';
 import { ExecutionPipeline } from '../components/Pipeline/ExecutionPipeline';
 import { FactoryTwin } from '../components/Factory/FactoryTwin';
 import { EventLogPanel } from '../components/Events/EventLogPanel';
+import { ArrowLeft, FlaskConical } from 'lucide-react';
 import {
   Robot,
   Station,
@@ -10,7 +12,6 @@ import {
   PipelineStage,
   FactoryEvent
 } from '../types/factory';
-import { CommandOutputPanel, CommandToolStep } from '../components/Chat/CommandOutputPanel';
 
 interface FactoryDashboardProps {
   stations: Station[];
@@ -21,12 +22,18 @@ interface FactoryDashboardProps {
   activeConveyor: boolean;
   laserScanning: boolean;
   isProcessingCommand: boolean;
+  isCommandLocked: boolean;
   onSubmitCommand: (cmd: string) => void;
   onSelectRobot: (robot: Robot) => void;
   onSelectStation: (station: Station) => void;
   onSelectPackage: (pkg: Package) => void;
-  commandOutput: { command: string; markdown: string; steps: CommandToolStep[] } | null;
-  onCloseCommandOutput: () => void;
+  conversation: ConversationMessage[];
+  activeRun: TaskRun | null;
+  backendConnected: boolean;
+  onConfirmOperation: () => void;
+  onCancelOperation: () => void;
+  showFactorySimulation: boolean;
+  onShowTaskWorkspace: () => void;
 }
 
 export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
@@ -38,26 +45,31 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
   activeConveyor,
   laserScanning,
   isProcessingCommand,
+  isCommandLocked,
   onSubmitCommand,
   onSelectRobot,
   onSelectStation,
   onSelectPackage,
-  commandOutput,
-  onCloseCommandOutput,
+  conversation,
+  activeRun,
+  backendConnected,
+  onConfirmOperation,
+  onCancelOperation,
+  showFactorySimulation,
+  onShowTaskWorkspace,
 }) => {
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#080b12] overflow-hidden">
       {/* Ask The Factory Command Input Bar */}
-      <CommandBar onSubmitCommand={onSubmitCommand} isProcessing={isProcessingCommand} />
+      <CommandBar onSubmitCommand={onSubmitCommand} isProcessing={isProcessingCommand} isLocked={isCommandLocked} />
 
-      {/* Compact workflow status */}
-      <ExecutionPipeline stages={pipeline} />
+      {showFactorySimulation && <div className="simulation-banner"><FlaskConical size={14} /><span>DEMO SIMULATION · Robot movement and station progress below are simulated</span><button type="button" onClick={onShowTaskWorkspace}><ArrowLeft size={14} /> Return to task workspace</button></div>}
+      {showFactorySimulation && <ExecutionPipeline stages={pipeline} />}
 
       {/* Factory floor and activity stream */}
       <div className="dashboard-layout flex-1 flex min-h-0 overflow-hidden">
-        {/* Factory floor */}
-        <main className="dashboard-center flex-1 p-3 min-w-0 min-h-0 flex flex-col justify-between">
-          <FactoryTwin
+        <main className={`dashboard-center flex-1 min-w-0 min-h-0 ${showFactorySimulation ? 'simulation-center' : 'task-center'}`}>
+          {showFactorySimulation ? <FactoryTwin
             stations={stations}
             robots={robots}
             packages={packages}
@@ -66,20 +78,19 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
             onSelectRobot={onSelectRobot}
             onSelectStation={onSelectStation}
             onSelectPackage={onSelectPackage}
-          />
+          /> : <TaskWorkspace
+            conversation={conversation}
+            activeRun={activeRun}
+            isProcessing={isProcessingCommand}
+            backendConnected={backendConnected}
+            onConfirm={onConfirmOperation}
+            onCancel={onCancelOperation}
+          />}
         </main>
 
         {/* Recent activity */}
         <EventLogPanel events={events} />
       </div>
-      {commandOutput && (
-        <CommandOutputPanel
-          command={commandOutput.command}
-          markdown={commandOutput.markdown}
-          steps={commandOutput.steps}
-          onClose={onCloseCommandOutput}
-        />
-      )}
     </div>
   );
 };

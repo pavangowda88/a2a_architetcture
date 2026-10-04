@@ -2,30 +2,50 @@ import { FactoryEvent, Robot, FactoryAgent, MCPToolCallLog, SecurityStatus } fro
 
 const API_BASE = '/api';
 
+export interface SystemStatusResponse {
+  connected: boolean;
+  server?: string;
+  tool_count?: number;
+  llm_enabled?: boolean;
+  llm_model?: string | null;
+  error?: string;
+}
+
+export interface ChatResponse {
+  reply?: string;
+  steps?: Array<{
+    tool?: string;
+    status?: string;
+    duration_ms?: number;
+    input?: unknown;
+    output?: unknown;
+    error?: string;
+  }>;
+  error?: string;
+}
+
 export async function fetchSystemStatus() {
   try {
     const res = await fetch(`${API_BASE}/status`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    console.warn('Backend API connection offline, using simulated backend connection state.');
-    return { connected: true, server: '6G-Core-Network', tool_count: 8, llm_enabled: true, llm_model: 'gpt-4o-mini' };
+    return await res.json() as SystemStatusResponse;
+  } catch {
+    return { connected: false, error: 'Operations API unavailable' } satisfies SystemStatusResponse;
   }
 }
 
 export async function sendCommandToFactory(message: string, conversationId: string = 'demo-conv-001') {
-  try {
-    const res = await fetch(`${API_BASE}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: conversationId, message, developer_mode: true }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    console.warn('API chat failed, falling back to client-side engine execution for demo', err);
-    return null;
+  const res = await fetch(`${API_BASE}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId, message, developer_mode: true }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = typeof body.detail === 'string' ? body.detail : `Operations API returned HTTP ${res.status}`;
+    throw new Error(detail);
   }
+  return body as ChatResponse;
 }
 
 export async function fetchAgentsFromRegistry() {

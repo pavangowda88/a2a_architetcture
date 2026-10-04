@@ -6,6 +6,7 @@ interface HeaderProps {
   systemStatus: SystemStatusType;
   mcpConnected: boolean;
   authActive: boolean;
+  showDemoDataBadge: boolean;
   onStartDemo: () => void;
   onSimulateFailure: () => void;
   onReset: () => void;
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   systemStatus,
   mcpConnected,
   authActive,
+  showDemoDataBadge,
   onStartDemo,
   onSimulateFailure,
   onReset,
@@ -83,6 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Action Bar & Clock */}
       <div className="flex items-center space-x-3">
+        {showDemoDataBadge && <span className="data-mode-badge">DEMO DATA</span>}
         {/* Demo Button */}
         <button
           onClick={onStartDemo}

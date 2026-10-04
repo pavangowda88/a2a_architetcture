@@ -4,20 +4,21 @@ import { Send, Sparkles } from 'lucide-react';
 interface CommandBarProps {
   onSubmitCommand: (command: string) => void;
   isProcessing: boolean;
+  isLocked?: boolean;
 }
 
-export const CommandBar: React.FC<CommandBarProps> = ({ onSubmitCommand, isProcessing }) => {
+export const CommandBar: React.FC<CommandBarProps> = ({ onSubmitCommand, isProcessing, isLocked = false }) => {
   const [input, setInput] = useState('');
 
   const sampleCommands = [
-    'Start production of order #104.',
-    'Which robots are available?',
-    'Show current factory status.',
+    'List agents with the inspection skill',
+    'Show active network sessions',
+    'Check the inbox for ue_agent_001',
   ];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isProcessing) return;
+    if (!input.trim() || isProcessing || isLocked) return;
     onSubmitCommand(input.trim());
     setInput('');
   };
@@ -32,8 +33,8 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onSubmitCommand, isProce
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={isProcessing}
-              placeholder='Try “Start production of order #104”'
+              disabled={isProcessing || isLocked}
+              placeholder='Ask about agents, UE services, sessions, or robot tasks'
               className="command-input w-full text-white px-4 py-3 rounded-xl text-sm placeholder:text-slate-500 transition-all"
             />
             {isProcessing && (
@@ -44,7 +45,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onSubmitCommand, isProce
           </div>
           <button
             type="submit"
-            disabled={!input.trim() || isProcessing}
+            disabled={!input.trim() || isProcessing || isLocked}
             className="command-submit flex items-center space-x-1.5 disabled:opacity-50 text-sm font-semibold px-5 py-3 rounded-xl transition-all active:scale-[0.98]"
           >
             <Send className="w-3.5 h-3.5" />
@@ -61,7 +62,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onSubmitCommand, isProce
               onClick={() => {
                 onSubmitCommand(cmd);
               }}
-              disabled={isProcessing}
+              disabled={isProcessing || isLocked}
               className="command-preset shrink-0 transition-colors active:scale-[0.98]"
             >
               {cmd}

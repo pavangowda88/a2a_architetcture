@@ -10,7 +10,7 @@ import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SystemLogsPage } from './pages/SystemLogsPage';
 import { RobotDetailModal } from './components/Factory/RobotDetailModal';
 import { ProductionCompleteModal } from './components/Demo/ProductionCompleteModal';
-import { CommandToolStep } from './components/Chat/CommandOutputPanel';
+import { ConversationMessage, TaskRun, TaskRunStatus } from './components/Chat/TaskWorkspace';
 
 import {
   INITIAL_STATIONS,
@@ -32,7 +32,49 @@ import {
   SecurityStatus
 } from './types/factory';
 
-import { fetchSystemStatus, sendCommandToFactory, factoryWs } from './services/api';
+import { ChatResponse, fetchSystemStatus, sendCommandToFactory } from './services/api';
+
+function nestedValue(value: unknown, names: string[]): unknown {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = nestedValue(item, names);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  for (const name of names) if (record[name] !== undefined) return record[name];
+  for (const item of Object.values(record)) {
+    const found = nestedValue(item, names);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function containsFailure(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsFailure);
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return record.success === false || record.status === 'failed' || Object.values(record).some(containsFailure);
+}
+
+function resolveRunStatus(response: ChatResponse, command: string): TaskRunStatus {
+  const steps = response.steps || [];
+  const stepStatuses = steps.map((step) => String(step.status || '').toLowerCase());
+  if (stepStatuses.includes('waiting')) return 'waiting';
+  if (stepStatuses.includes('confirmation')) return 'confirmation';
+  if (stepStatuses.includes('error') || stepStatuses.includes('failed') || steps.some((step) => containsFailure(step.output))) return 'failed';
+  if (/^cancel\b/i.test(command.trim()) && /cancel/i.test(response.reply || '')) return 'cancelled';
+  const toolName = steps.find((step) => step.tool)?.tool || '';
+  if (toolName === 'assign_task') {
+    const output = steps.map((step) => step.output);
+    const accepted = nestedValue(output, ['accepted']);
+    const backendStatus = nestedValue(output, ['status']);
+    if (accepted === true || ['accepted', 'queued', 'active'].includes(String(backendStatus || '').toLowerCase())) return 'accepted';
+  }
+  return 'completed';
+}
 
 export function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('factory');
@@ -42,25 +84,7 @@ export function App() {
   const [robots, setRobots] = useState<Robot[]>(INITIAL_ROBOTS);
   const [agents, setAgents] = useState<FactoryAgent[]>(INITIAL_AGENTS);
   const [pipeline, setPipeline] = useState<PipelineStage[]>(INITIAL_PIPELINE);
-  const [events, setEvents] = useState<FactoryEvent[]>([
-    {
-      id: 'init-1',
-      timestamp: '10:42:00',
-      eventType: 'AGENT_ONLINE',
-      source: 'SupervisorAgent',
-      action: 'System initialized and connected to 6G Subnet',
-      status: 'success',
-    },
-    {
-      id: 'init-2',
-      timestamp: '10:42:01',
-      eventType: 'AUTH_SUCCESS',
-      source: 'Keycloak',
-      target: 'MCP Server',
-      action: 'OAuth 2.0 Token Issued (mcp:execute)',
-      status: 'success',
-    },
-  ]);
+  const [events, setEvents] = useState<FactoryEvent[]>([]);
 
   const [packages, setPackages] = useState<Package[]>([
     {
@@ -85,16 +109,7 @@ export function App() {
     },
   ]);
 
-  const [mcpLogs, setMcpLogs] = useState<MCPToolCallLog[]>([
-    {
-      id: 'log-1',
-      timestamp: '10:42:02',
-      toolName: 'get_factory_status()',
-      arguments: {},
-      status: 'SUCCESS',
-      executionTimeMs: 12,
-    },
-  ]);
+  const [mcpLogs, setMcpLogs] = useState<MCPToolCallLog[]>([]);
 
   const [securityStatus, setSecurityStatus] = useState<SecurityStatus>({
     keycloakConnected: true,
@@ -138,11 +153,10 @@ export function App() {
   const [laserScanning, setLaserScanning] = useState(false);
   const [isDemoRunning, setIsDemoRunning] = useState(false);
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
-  const [commandOutput, setCommandOutput] = useState<{
-    command: string;
-    markdown: string;
-    steps: CommandToolStep[];
-  } | null>(null);
+  const [showFactorySimulation, setShowFactorySimulation] = useState(false);
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [conversation, setConversation] = useState<ConversationMessage[]>([]);
+  const [activeRun, setActiveRun] = useState<TaskRun | null>(null);
 
   // Selected Modal State
   const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null);
@@ -150,11 +164,10 @@ export function App() {
 
   // Backend Integration Listener
   useEffect(() => {
-    fetchSystemStatus();
-    factoryWs.connect();
-    factoryWs.onEvent((evt) => {
-      setEvents((prev) => [evt, ...prev.slice(0, 49)]);
-    });
+    const refreshStatus = () => fetchSystemStatus().then((status) => setBackendConnected(status.connected));
+    refreshStatus();
+    const statusTimer = window.setInterval(refreshStatus, 15000);
+    return () => window.clearInterval(statusTimer);
   }, []);
 
   const addEvent = (
@@ -177,15 +190,22 @@ export function App() {
     setEvents((prev) => [newEvt, ...prev.slice(0, 49)]);
   };
 
-  const addMcpLog = (toolName: string, args: Record<string, any>, durationMs: number = 42) => {
+  const addMcpLog = (
+    toolName: string,
+    args: Record<string, any>,
+    durationMs: number = 0,
+    status: MCPToolCallLog['status'] = 'SUCCESS',
+    result?: unknown
+  ) => {
     const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
     const log: MCPToolCallLog = {
       id: `mcp-${Date.now()}`,
       timestamp: timeStr,
       toolName,
       arguments: args,
-      status: 'SUCCESS',
+      status,
       executionTimeMs: durationMs,
+      result,
     };
     setMcpLogs((prev) => [log, ...prev]);
     setAnalytics((prev) => ({ ...prev, mcpCalls: prev.mcpCalls + 1 }));
@@ -204,6 +224,7 @@ export function App() {
   const runDemoScenario = async () => {
     if (isDemoRunning) return;
     setIsDemoRunning(true);
+    setShowFactorySimulation(true);
     setCurrentPage('factory');
 
     // Reset pipeline & stations
@@ -478,38 +499,74 @@ export function App() {
   };
 
   // ---------------- USER NATURAL LANGUAGE COMMAND HANDLER ----------------
-  const handleSubmitCommand = async (command: string) => {
+  const handleSubmitCommand = async (message: string, continuation = false) => {
+    if (isProcessingCommand) return;
+    const previousRun = activeRun;
+    const isContinuation = continuation || previousRun?.status === 'waiting' || previousRun?.status === 'confirmation';
+    const requestId = isContinuation && previousRun ? previousRun.id : `run-${Date.now()}`;
+    const displayCommand = isContinuation && previousRun ? previousRun.command : message;
+    const startedAt = isContinuation && previousRun
+      ? previousRun.startedAt
+      : new Date().toLocaleTimeString('en-US', { hour12: false });
+    const userText = message.toLowerCase() === 'confirm'
+      ? 'Confirmed the pending operation.'
+      : message.toLowerCase() === 'cancel' ? 'Cancelled the pending operation.' : message;
+
     setIsProcessingCommand(true);
-    setCommandOutput(null);
-    addEvent('TASK_CREATED', 'User', `Command: "${command}"`);
+    setShowFactorySimulation(false);
+    setConversation((previous) => [...previous, { id: `user-${Date.now()}`, role: 'user', content: userText, runId: requestId }]);
+    setActiveRun({
+      id: requestId,
+      command: displayCommand,
+      status: 'submitted',
+      reply: previousRun?.reply,
+      steps: previousRun?.steps || [],
+      startedAt,
+    });
+    addEvent('TASK_CREATED', 'User', `Request sent: "${displayCommand}"`, undefined, 'processing');
+    const started = performance.now();
 
-    // Try real backend first
-    const backendResult = await sendCommandToFactory(command);
-    if (backendResult && backendResult.reply) {
-      addEvent('AGENT_MESSAGE', 'Supervisor / LLM', backendResult.reply);
-    }
-    const steps: CommandToolStep[] = Array.isArray(backendResult?.steps) ? backendResult.steps : [];
-    const markdown = typeof backendResult?.reply === 'string'
-      ? backendResult.reply
-      : '### Backend response unavailable\n\nNo response was received from the MCP chat service. The factory animation may still run locally, but this command was not confirmed by the backend.';
-    setCommandOutput({ command, markdown, steps });
-
-    // Trigger demo execution scenario
-    if (command.toLowerCase().includes('104') || command.toLowerCase().includes('start')) {
-      await runDemoScenario();
-    } else {
-      // Simulate general command processing
-      updatePipelineStage('cmd', 'COMPLETED', command);
-      await delay(500);
-      updatePipelineStage('llm', 'COMPLETED', 'Command interpreted');
-      await delay(500);
-      updatePipelineStage('mcp_exec', 'COMPLETED', 'MCP Tool executed');
-      await delay(500);
-      updatePipelineStage('complete', 'COMPLETED', 'Action completed');
+    let response: ChatResponse;
+    try {
+      response = await sendCommandToFactory(message);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unable to reach the operations API';
+      response = { reply: `The request could not be completed: ${detail}`, error: detail, steps: [{ status: 'error', error: detail }] };
     }
 
+    const steps = Array.isArray(response.steps) ? response.steps : [];
+    const status = response.error ? 'failed' : resolveRunStatus(response, message);
+    const reply = response.reply || response.error || 'The backend returned no response text.';
+    const durationMs = Math.round(performance.now() - started);
+    setConversation((previous) => [...previous, { id: `assistant-${Date.now()}`, role: 'assistant', content: reply, runId: requestId }]);
+    setActiveRun({ id: requestId, command: displayCommand, status, reply, steps, startedAt, durationMs });
+
+    steps.forEach((step) => {
+      const toolStatus = String(step.status || '').toLowerCase();
+      const logStatus: MCPToolCallLog['status'] = ['error', 'failed'].includes(toolStatus) || containsFailure(step.output)
+        ? 'FAILED'
+        : ['completed', 'success'].includes(toolStatus) ? 'SUCCESS' : 'RUNNING';
+      const args = step.input && typeof step.input === 'object' && !Array.isArray(step.input)
+        ? step.input as Record<string, any>
+        : {};
+      if (step.tool) {
+        addMcpLog(step.tool, args, step.duration_ms || 0, logStatus, step.output);
+        addEvent('TOOL_CALL', 'MCP Gateway', `${step.tool} returned ${toolStatus || 'a response'}`, undefined, logStatus === 'FAILED' ? 'failed' : 'success');
+      }
+    });
+
+    addEvent(
+      status === 'failed' ? 'TASK_FAILED' : status === 'completed' || status === 'accepted' || status === 'cancelled' ? 'TASK_COMPLETED' : 'AGENT_MESSAGE',
+      'Operations API',
+      reply,
+      undefined,
+      status === 'failed' ? 'failed' : status === 'submitted' ? 'processing' : 'success'
+    );
     setIsProcessingCommand(false);
   };
+
+  const handleConfirmOperation = () => handleSubmitCommand('confirm', true);
+  const handleCancelOperation = () => handleSubmitCommand('cancel', true);
 
   const handleStopRobot = (robotId: string) => {
     setRobots((prev) =>
@@ -528,6 +585,7 @@ export function App() {
     setActiveConveyor(false);
     setLaserScanning(false);
     setIsDemoRunning(false);
+    setShowFactorySimulation(false);
     setShowCompleteModal(false);
     addEvent('NETWORK_EVENT', 'System', 'Factory Simulation Reset');
   };
@@ -536,9 +594,10 @@ export function App() {
     <div className="app-frame flex flex-col h-screen w-screen overflow-hidden bg-[#080b12] text-slate-100 font-sans">
       {/* Top Industrial Header */}
       <Header
-        systemStatus="ONLINE"
-        mcpConnected={true}
-        authActive={true}
+        systemStatus={backendConnected ? 'ONLINE' : 'OFFLINE'}
+        mcpConnected={backendConnected}
+        authActive={backendConnected}
+        showDemoDataBadge={currentPage !== 'factory' || showFactorySimulation}
         onStartDemo={runDemoScenario}
         onSimulateFailure={handleSimulateFailure}
         onReset={handleReset}
@@ -550,7 +609,7 @@ export function App() {
         <Sidebar
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          activeTaskCount={packages.filter((p) => p.progressPercent < 100).length}
+          activeTaskCount={0}
         />
 
         {/* Dynamic Page Router */}
@@ -564,12 +623,18 @@ export function App() {
             activeConveyor={activeConveyor}
             laserScanning={laserScanning}
             isProcessingCommand={isProcessingCommand}
+            isCommandLocked={isProcessingCommand || activeRun?.status === 'confirmation'}
             onSubmitCommand={handleSubmitCommand}
             onSelectRobot={setSelectedRobot}
             onSelectStation={() => {}}
             onSelectPackage={() => {}}
-            commandOutput={commandOutput}
-            onCloseCommandOutput={() => setCommandOutput(null)}
+            conversation={conversation}
+            activeRun={activeRun}
+            backendConnected={backendConnected}
+            onConfirmOperation={handleConfirmOperation}
+            onCancelOperation={handleCancelOperation}
+            showFactorySimulation={showFactorySimulation}
+            onShowTaskWorkspace={() => setShowFactorySimulation(false)}
           />
         )}
 

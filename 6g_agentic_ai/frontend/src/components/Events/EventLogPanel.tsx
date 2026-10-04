@@ -20,18 +20,18 @@ export const EventLogPanel: React.FC<EventLogPanelProps> = ({ events }) => {
         <div className="flex items-center space-x-2">
           <Activity className="w-4 h-4 text-sky-400 animate-pulse" />
           <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-            LIVE AGENT ACTIVITY
+            RECENT ACTIVITY
           </span>
         </div>
         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold">
-          REAL-TIME
+          SESSION LOG
         </span>
       </div>
 
       {/* Events List Stream */}
       <div className="my-2 flex-1 overflow-y-auto space-y-2 pr-1 font-mono text-xs max-h-[500px]">
         {events.length === 0 ? (
-          <div className="p-4 text-center text-slate-500 text-xs italic">Awaiting backend agent events...</div>
+          <div className="p-4 text-center text-slate-500 text-xs italic">No task events recorded in this session.</div>
         ) : (
           events.map((evt) => {
             const Icon = getEventIcon(evt.eventType);
@@ -82,7 +82,7 @@ export const EventLogPanel: React.FC<EventLogPanelProps> = ({ events }) => {
       {/* Footer Info */}
       <div className="pt-2 border-t border-slate-800 text-[10px] font-mono text-slate-500 flex justify-between items-center">
         <span>EVENTS RECORDED: {events.length}</span>
-        <span className="text-emerald-400">STREAM ACTIVE</span>
+        <span>RECORDED EVENTS</span>
       </div>
     </div>
   );

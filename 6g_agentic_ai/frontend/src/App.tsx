@@ -4,9 +4,7 @@ import { Sidebar, PageId } from './components/Layout/Sidebar';
 import { FactoryDashboard } from './pages/FactoryDashboard';
 import { AgentNetworkPage } from './pages/AgentNetworkPage';
 import { MCPControlPage } from './pages/MCPControlPage';
-import { SecurityCenterPage } from './pages/SecurityCenterPage';
 import { TasksPage } from './pages/TasksPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SystemLogsPage } from './pages/SystemLogsPage';
 import { RobotDetailModal } from './components/Factory/RobotDetailModal';
 import { ProductionCompleteModal } from './components/Demo/ProductionCompleteModal';
@@ -27,9 +25,7 @@ import {
   FactoryAgent,
   PipelineStage,
   FactoryEvent,
-  MCPToolCallLog,
-  FactoryAnalyticsData,
-  SecurityStatus
+  MCPToolCallLog
 } from './types/factory';
 
 import { ChatResponse, fetchSystemStatus, sendCommandToFactory } from './services/api';
@@ -111,43 +107,6 @@ export function App() {
 
   const [mcpLogs, setMcpLogs] = useState<MCPToolCallLog[]>([]);
 
-  const [securityStatus, setSecurityStatus] = useState<SecurityStatus>({
-    keycloakConnected: true,
-    oauthActive: true,
-    activeTokensCount: 4,
-    unauthorizedCallsCount: 0,
-    securityEventsCount: 0,
-    lastIntrospection: '10:42:05',
-  });
-
-  const [analytics, setAnalytics] = useState<FactoryAnalyticsData>({
-    totalTasks: 47,
-    activeTasks: 2,
-    completedTasks: 35,
-    failedTasks: 0,
-    mcpCalls: 124,
-    agentMessages: 356,
-    avgTaskTimeSec: 12.4,
-    networkLatencyMs: 12,
-    robotUtilization: [
-      { name: 'Robot R01', utilization: 85 },
-      { name: 'Robot R02', utilization: 92 },
-      { name: 'Robot R03', utilization: 78 },
-    ],
-    taskTrends: [
-      { time: '10:00', tasks: 4, mcpCalls: 12 },
-      { time: '10:10', tasks: 8, mcpCalls: 24 },
-      { time: '10:20', tasks: 15, mcpCalls: 45 },
-      { time: '10:30', tasks: 28, mcpCalls: 85 },
-      { time: '10:40', tasks: 47, mcpCalls: 124 },
-    ],
-    throughput: [
-      { hour: '08:00', packages: 12 },
-      { hour: '09:00', packages: 18 },
-      { hour: '10:00', packages: 25 },
-    ],
-  });
-
   // UI Interactive States
   const [activeConveyor, setActiveConveyor] = useState(false);
   const [laserScanning, setLaserScanning] = useState(false);
@@ -210,7 +169,6 @@ export function App() {
       mode,
     };
     setMcpLogs((prev) => [log, ...prev]);
-    setAnalytics((prev) => ({ ...prev, mcpCalls: prev.mcpCalls + 1 }));
   };
 
   const updatePipelineStage = (stageId: string, status: PipelineStage['status'], detail?: string) => {
@@ -653,11 +611,7 @@ export function App() {
           />
         )}
 
-        {currentPage === 'security' && <SecurityCenterPage security={securityStatus} />}
-
-        {currentPage === 'tasks' && <TasksPage packages={packages} />}
-
-        {currentPage === 'analytics' && <AnalyticsPage analytics={analytics} />}
+        {currentPage === 'tasks' && <TasksPage />}
 
         {currentPage === 'logs' && <SystemLogsPage events={events} />}
       </div>

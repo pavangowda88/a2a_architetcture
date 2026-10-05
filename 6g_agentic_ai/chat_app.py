@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import database
 from shared.config import settings
 from shared.oauth import OAuthClient
 
@@ -44,6 +45,12 @@ class ChatRequest(BaseModel):
     conversation_id: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=4000)
     developer_mode: bool = False
+
+
+class TaskCreateRequest(BaseModel):
+    task: str = Field(min_length=1, max_length=1000)
+    skill: str | None = Field(default=None, max_length=120)
+    payload_kg: float = Field(default=0, ge=0)
 
 
 def _jsonrpc_payload(response: httpx.Response) -> dict[str, Any]:
@@ -511,6 +518,32 @@ async def status() -> dict[str, Any]:
             "llm_model": LLM_MODEL if LLM_ENABLED else None,
             "error": str(exc),
         }, headers=headers)
+
+
+@app.get("/api/tasks")
+async def list_tasks() -> dict[str, Any]:
+    if database.db is None:
+        await database.init_db()
+    tasks = await database.db.tasks.find({}).to_list(length=5000)
+    records = []
+    for task in tasks:
+        record = dict(task)
+        record.pop("_id", None)
+        records.append(record)
+    records.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    return {"tasks": records}
+
+
+@app.post("/api/tasks")
+async def create_task(request: TaskCreateRequest) -> dict[str, Any]:
+    try:
+        result = await gateway.call("assign_task", request.dict(exclude_none=True))
+    except Exception as exc:
+        logger.warning("Task assignment failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Unable to assign task through the MCP gateway") from exc
+    if isinstance(result, dict) and result.get("success") is False:
+        raise HTTPException(status_code=422, detail=result.get("error", "Task assignment was rejected"))
+    return result if isinstance(result, dict) else {"result": result}
 
 
 @app.post("/api/chat")

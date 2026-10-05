@@ -3,13 +3,11 @@ import {
   Factory,
   Network,
   Terminal,
-  Shield,
   CheckSquare,
-  BarChart3,
   FileText,
 } from 'lucide-react';
 
-export type PageId = 'factory' | 'network' | 'mcp' | 'security' | 'tasks' | 'analytics' | 'logs';
+export type PageId = 'factory' | 'network' | 'mcp' | 'tasks' | 'logs';
 
 interface SidebarProps {
   currentPage: PageId;
@@ -22,9 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, act
     { id: 'factory', label: 'Factory Overview', icon: Factory, badge: null },
     { id: 'network', label: 'Agent Network', icon: Network, badge: null },
     { id: 'mcp', label: 'MCP Control Center', icon: Terminal, badge: null },
-    { id: 'security', label: 'Security Center', icon: Shield, badge: null },
     { id: 'tasks', label: 'Task Management', icon: CheckSquare, badge: activeTaskCount > 0 ? activeTaskCount : null },
-    { id: 'analytics', label: 'Factory Analytics', icon: BarChart3, badge: null },
     { id: 'logs', label: 'System Logs', icon: FileText, badge: null },
   ];
 

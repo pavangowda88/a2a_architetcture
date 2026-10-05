@@ -25,6 +25,42 @@ export interface ChatResponse {
   error?: string;
 }
 
+export interface ManagedTask {
+  task_id?: string;
+  session_id?: string;
+  task?: string;
+  skill?: string;
+  agent_id?: string;
+  status?: string;
+  payload_kg?: number;
+  created_at?: string;
+  updated_at?: string;
+  error?: string;
+}
+
+function taskApiError(body: { detail?: unknown }, status: number, fallback: string) {
+  if (status === 404) return 'The task API is not available yet. Restart the operations service and try again.';
+  return typeof body.detail === 'string' ? body.detail : fallback;
+}
+
+export async function fetchTasks(): Promise<ManagedTask[]> {
+  const res = await fetch(`${API_BASE}/tasks`, { cache: 'no-store' });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(taskApiError(body, res.status, `Operations API returned HTTP ${res.status}`));
+  return Array.isArray(body.tasks) ? body.tasks as ManagedTask[] : [];
+}
+
+export async function assignTask(task: string, skill: string, payloadKg: number) {
+  const res = await fetch(`${API_BASE}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task, ...(skill ? { skill } : {}), payload_kg: payloadKg }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(taskApiError(body, res.status, `Task assignment failed (HTTP ${res.status})`));
+  return body;
+}
+
 export async function fetchSystemStatus() {
   try {
     const res = await fetch(`${API_BASE}/status`, { cache: 'no-store' });

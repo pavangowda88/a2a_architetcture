@@ -9,15 +9,20 @@ import {
   CircleHelp,
   Clock3,
   Database,
+  FlaskConical,
+  MapPin,
   MessageSquare,
   Network,
   Radio,
+  Route,
   ShieldCheck,
   Terminal,
   UserRound,
   X,
 } from 'lucide-react';
 import { CommandToolStep } from './CommandOutputPanel';
+import type { Station } from '../../types/factory';
+import { classifyTaskRun, getRobotExecutionState, getRobotMilestones, resolveRobotRoute } from './taskVisualization';
 
 export type TaskRunStatus = 'submitted' | 'waiting' | 'confirmation' | 'accepted' | 'completed' | 'failed' | 'cancelled';
 
@@ -45,6 +50,7 @@ interface TaskWorkspaceProps {
   backendConnected: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  stations: Station[];
 }
 
 type TaskKind = 'robot' | 'discovery' | 'authentication' | 'service' | 'message' | 'query' | 'generic';
@@ -90,18 +96,6 @@ function findCollection(value: unknown, names: string[]): unknown[] {
     if (found.length) return found;
   }
   return [];
-}
-
-function classifyRun(run: TaskRun | null): TaskKind {
-  const tool = run?.steps.find((step) => step.tool)?.tool?.toLowerCase() || '';
-  const text = `${tool} ${run?.command || ''}`.toLowerCase();
-  if (/assign_task|dispatch_robot|robot task/.test(text)) return 'robot';
-  if (/find_agent|find_robot|list_agents|registry|discover/.test(text)) return 'discovery';
-  if (/authenticate|attach_ue|authentication|authenticat/.test(text)) return 'authentication';
-  if (/request_ue_service|service_request|qos/.test(text)) return 'service';
-  if (/send_ue_message|broadcast_ue_message|peer.message|broadcast/.test(text)) return 'message';
-  if (/inbox|session|status|profile/.test(text)) return 'query';
-  return 'generic';
 }
 
 function taskLabel(kind: TaskKind) {
@@ -231,14 +225,13 @@ function TaskFlow({ run, kind }: { run: TaskRun; kind: TaskKind }) {
   );
 }
 
-function TaskDiagram({ run, kind }: { run: TaskRun; kind: TaskKind }) {
+function TaskDiagram({ run, kind, stations }: { run: TaskRun; kind: TaskKind; stations: Station[] }) {
   const inputs = inputOf(run);
   const outputs = outputOf(run);
   const details = [...inputs, ...outputs];
   const agentId = findValue(details, ['agent_id', 'robot_id', 'ue_agent_id', 'sender_id', 'agentId']);
   const recipient = findValue(details, ['recipient_id', 'recipient', 'target_agent_id']);
   const skill = findValue(details, ['skill', 'skill_id']);
-  const taskText = findValue(details, ['task', 'task_text', 'description']);
   const agents = findCollection(outputs, ['agents', 'matches', 'items']);
   const singleAgent = findValue(outputs, ['agent']);
   const cards = agents.length ? agents : singleAgent && typeof singleAgent === 'object' ? [singleAgent] : [];
@@ -246,26 +239,72 @@ function TaskDiagram({ run, kind }: { run: TaskRun; kind: TaskKind }) {
 
   if (kind === 'robot') {
     const payload = findValue(details, ['payload_kg']);
-    const source = findValue(details, ['source', 'from', 'origin', 'source_location']);
-    const target = findValue(details, ['target', 'to', 'destination', 'target_location']);
+    const route = resolveRobotRoute(run, stations);
     const taskResult = findValue(outputs, ['task']);
     const taskId = findValue([taskResult, ...outputs], ['task_id', 'session_id']);
-    const returnedStatus = findValue([taskResult, ...outputs], ['status']);
-    const assignmentAccepted = findValue(outputs, ['accepted']) === true || run.status === 'accepted';
+    const executionState = getRobotExecutionState(run);
+    const milestones = getRobotMilestones(executionState);
+    const assignedRobot = findValue(details, ['agent_id', 'robot_id', 'robot_name', 'agentId']);
+    const taskDescription = findValue(details, ['task', 'task_text', 'description']) || run.command;
+    const previewMoves = ['accepted', 'queued', 'active', 'moving', 'picking', 'delivering'].includes(executionState);
+    const stateLabel = executionState.replace(/_/g, ' ');
+    const actionLabel = ({
+      awaiting_response: 'Waiting for task assignment',
+      awaiting_confirmation: 'Task requires operator confirmation',
+      accepted: 'Robot task accepted · previewing planned route',
+      queued: `Task queued · previewing: ${String(taskDescription)}`,
+      active: 'Executing assigned task',
+      moving: `Moving toward ${route.destination}`,
+      picking: `Picking up at ${route.source}`,
+      delivering: `Delivering to ${route.destination}`,
+      completed: 'Task marked complete by backend',
+      failed: 'Task failed',
+      cancelled: 'Task cancelled',
+      response_received: 'Assignment response received · execution not reported',
+    } as const)[executionState];
     return (
       <>
-        <div className="task-visual-title"><Bot size={17} /><div><strong>Robot assignment</strong><span>Backend assignment details</span></div></div>
-        <div className="assignment-route">
-          <div className="assignment-node"><span>ROBOT / AGENT</span><strong>{String(agentId || 'Selected by backend')}</strong><small>{skill ? `Skill: ${String(skill)}` : 'Selection based on task fit'}</small></div>
-          <ArrowRight className="assignment-arrow" size={18} />
-          <div className="assignment-node"><span>TASK DESTINATION</span><strong>{target ? String(target) : 'Not specified'}</strong><small>{source ? `From: ${String(source)}` : 'No location provided'}</small></div>
+        <div className="robot-mission-heading">
+          <div className="task-visual-title"><Bot size={17} /><div><strong>Robot mission</strong><span>{skill ? `Capability: ${String(skill)}` : 'Robot assignment and route'}</span></div></div>
+          <span className={`robot-execution-chip state-${executionState}`}><i />{stateLabel}</span>
         </div>
+        <div className="robot-mission-summary">
+          <div><span>ASSIGNED ROBOT</span><strong>{String(assignedRobot || agentId || 'Awaiting backend assignment')}</strong></div>
+          <div><span>MISSION</span><strong>{String(taskDescription)}</strong></div>
+        </div>
+        <div className="robot-action-banner"><Activity size={15} /><div><span>ROBOT ACTION</span><strong>{actionLabel}</strong></div></div>
+        <section className={`robot-route-preview ${previewMoves ? 'is-moving' : ''}`} aria-label="Schematic robot route preview">
+          <div className="robot-route-preview-heading"><div><Route size={14} /><strong>Route preview</strong></div><span>SCHEMATIC</span></div>
+          <div className="robot-route-map">
+            <div className="robot-route-stop"><MapPin size={15} /><span>ORIGIN</span><strong>{route.source}</strong></div>
+            <div className="robot-route-track" aria-hidden="true">
+              <span className="robot-route-line" />
+              <span className="robot-route-marker">
+                <span className="robot-illustration"><Bot size={30} strokeWidth={1.8} /></span>
+                <span className="robot-unit-label">{String(assignedRobot || agentId || 'ROBOT')}</span>
+              </span>
+            </div>
+            <div className="robot-route-stop is-destination"><MapPin size={15} /><span>DESTINATION</span><strong>{route.destination}</strong></div>
+          </div>
+          <div className="robot-preview-disclaimer"><FlaskConical size={13} /><span>SIMULATED ROUTE PREVIEW · NOT LIVE ROBOT TELEMETRY</span></div>
+        </section>
+        <ol className="robot-milestones" aria-label="Robot task milestones">
+          {milestones.map((milestone, index) => <li className={`is-${milestone.state}`} key={`${milestone.label}-${index}`}>
+            <span>{milestone.state === 'complete' ? <Check size={12} /> : milestone.state === 'failed' ? <X size={12} /> : index + 1}</span>
+            <strong>{milestone.label}</strong>
+          </li>)}
+        </ol>
+        <p className="robot-telemetry-note">
+          {executionState !== 'response_received' && executionState !== 'awaiting_response' && executionState !== 'awaiting_confirmation'
+            ? `Backend task status: ${stateLabel}. Live robot position updates are not available.`
+            : isBusy
+              ? 'Waiting for the backend assignment response. No robot movement is being assumed.'
+              : 'The backend returned no movement telemetry. The route above is a visual preview, not a report of physical movement.'}
+        </p>
         <FieldList entries={[
-          ['Task', taskText], ['Payload', payload !== undefined ? `${String(payload)} kg` : undefined],
-          ['Locations', findValue(details, ['locations'])], ['Backend task status', returnedStatus], ['Task / session ID', taskId],
+          ['Payload', payload !== undefined ? `${String(payload)} kg` : undefined],
+          ['Locations', findValue(details, ['locations'])], ['Backend task status', executionState], ['Task / session ID', taskId],
         ]} />
-        {isBusy && <p className="task-truth-note"><Clock3 size={13} /> Request sent. Robot execution has not been confirmed.</p>}
-        {assignmentAccepted && <><div className="task-validation-list"><span><Check size={12} /> Skill compatibility validated</span><span><Check size={12} /> Payload capacity validated</span></div><p className="task-truth-note is-success"><CheckCircle2 size={13} /> Assignment accepted. No physical movement telemetry is available in this response.</p></>}
       </>
     );
   }
@@ -372,9 +411,10 @@ export const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({
   backendConnected,
   onConfirm,
   onCancel,
+  stations,
 }) => {
   const conversationEnd = useRef<HTMLDivElement>(null);
-  const kind = classifyRun(activeRun);
+  const kind = classifyTaskRun(activeRun);
   const status = responseStatus(activeRun, isProcessing);
   const hasConfirmation = activeRun?.status === 'confirmation';
 
@@ -412,7 +452,7 @@ export const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({
           <div className="task-request-summary"><span className="task-section-label">CURRENT REQUEST</span><p>{activeRun.command}</p><div className="task-request-meta"><span>{taskLabel(kind)}</span><span>{activeRun.startedAt}</span>{activeRun.durationMs !== undefined && <span>{activeRun.durationMs} ms</span>}</div></div>
           <TaskFlow run={activeRun} kind={kind} />
           <StageRail status={status} />
-          <div className="task-visualization"><TaskDiagram run={activeRun} kind={kind} /></div>
+          <div className="task-visualization"><TaskDiagram run={activeRun} kind={kind} stations={stations} /></div>
           {activeRun.status === 'failed' && activeRun.steps.some((step) => step.error || findValue(step.output, ['error'])) && <div className="task-failure-callout"><AlertTriangle size={14} /><p>{String(activeRun.steps.find((step) => step.error)?.error || findValue(activeRun.steps.map((step) => step.output), ['error']))}</p></div>}
           {activeRun.reply && <div className="task-reply"><span className="task-section-label">ASSISTANT RESPONSE</span><p>{activeRun.reply}</p></div>}
           <ToolSteps steps={activeRun.steps} />

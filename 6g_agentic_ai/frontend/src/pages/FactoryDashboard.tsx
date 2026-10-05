@@ -81,6 +81,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
           /> : <TaskWorkspace
             conversation={conversation}
             activeRun={activeRun}
+            stations={stations}
             isProcessing={isProcessingCommand}
             backendConnected={backendConnected}
             onConfirm={onConfirmOperation}

@@ -13,16 +13,13 @@ import { ConversationMessage, TaskRun, TaskRunStatus } from './components/Chat/T
 import {
   INITIAL_STATIONS,
   INITIAL_ROBOTS,
-  INITIAL_AGENTS,
-  INITIAL_PIPELINE,
-  AVAILABLE_MCP_TOOLS
+  INITIAL_PIPELINE
 } from './services/factoryState';
 
 import {
   Robot,
   Station,
   Package,
-  FactoryAgent,
   PipelineStage,
   FactoryEvent,
   MCPToolCallLog
@@ -78,7 +75,6 @@ export function App() {
   // Simulation State
   const [stations, setStations] = useState<Station[]>(INITIAL_STATIONS);
   const [robots, setRobots] = useState<Robot[]>(INITIAL_ROBOTS);
-  const [agents, setAgents] = useState<FactoryAgent[]>(INITIAL_AGENTS);
   const [pipeline, setPipeline] = useState<PipelineStage[]>(INITIAL_PIPELINE);
   const [events, setEvents] = useState<FactoryEvent[]>([]);
 
@@ -113,7 +109,7 @@ export function App() {
   const [isDemoRunning, setIsDemoRunning] = useState(false);
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
   const [showFactorySimulation, setShowFactorySimulation] = useState(false);
-  const [backendConnected, setBackendConnected] = useState(false);
+  const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [activeRun, setActiveRun] = useState<TaskRun | null>(null);
 
@@ -149,6 +145,14 @@ export function App() {
     setEvents((prev) => [newEvt, ...prev.slice(0, 49)]);
   };
 
+  const addSimulationEvent = (
+    eventType: FactoryEvent['eventType'],
+    source: string,
+    action: string,
+    target?: string,
+    status: FactoryEvent['status'] = 'success'
+  ) => addEvent(eventType, `Demo · ${source}`, action, target, status);
+
   const addMcpLog = (
     toolName: string,
     args: Record<string, any>,
@@ -170,6 +174,9 @@ export function App() {
     };
     setMcpLogs((prev) => [log, ...prev]);
   };
+
+  const addSimulationMcpLog = (toolName: string, args: Record<string, any>) =>
+    addMcpLog(toolName, args, 0, 'SUCCESS', { simulation: true, source: 'LOCAL SIMULATION' }, 'SIMULATION');
 
   const updatePipelineStage = (stageId: string, status: PipelineStage['status'], detail?: string) => {
     setPipeline((prev) =>
@@ -193,7 +200,7 @@ export function App() {
 
     // 1. User Command Received
     updatePipelineStage('cmd', 'COMPLETED', 'Command: "Start production of order #104."');
-    addEvent('TASK_CREATED', 'User', 'Submitted production order #104');
+    addSimulationEvent('TASK_CREATED', 'User', 'Submitted production order #104');
     await delay(700);
 
     // 2. LLM Analysis
@@ -203,34 +210,34 @@ export function App() {
 
     // 3. Supervisor Agent
     updatePipelineStage('sup', 'PROCESSING', 'Decomposing task into station steps');
-    addEvent('AGENT_MESSAGE', 'Supervisor', 'Decomposed Order #104: Material ➔ Assembly ➔ Inspection ➔ Packaging');
+    addSimulationEvent('AGENT_MESSAGE', 'Supervisor', 'Decomposed Order #104: Material ➔ Assembly ➔ Inspection ➔ Packaging');
     await delay(900);
     updatePipelineStage('sup', 'COMPLETED', 'Task workflow initialized');
 
     // 4. Agent Discovery
     updatePipelineStage('disc', 'PROCESSING', 'Querying Registry for skills [pick_and_place, welding, inspection]');
     await delay(800);
-    addEvent('TOOL_CALL', 'Supervisor', 'find_robot_by_skill(skill="pick_and_place")', 'Registry');
-    addMcpLog('find_robot_by_skill()', { skill: 'pick_and_place' });
+    addSimulationEvent('TOOL_CALL', 'Supervisor', 'find_robot_by_skill(skill="pick_and_place")', 'Registry');
+    addSimulationMcpLog('find_robot_by_skill()', { skill: 'pick_and_place' });
     updatePipelineStage('disc', 'COMPLETED', 'Matched Robots R01, R02, R03');
 
     // 5. MCP Tool Selection
     updatePipelineStage('mcp_sel', 'PROCESSING', 'Selected dispatch_robot() and get_robot_status()');
     await delay(800);
-    addEvent('TOOL_CALL', 'Supervisor', 'get_robot_status()', 'MCP Server');
-    addMcpLog('get_robot_status()', { robot_id: 'R01' });
+    addSimulationEvent('TOOL_CALL', 'Supervisor', 'get_robot_status()', 'MCP Server');
+    addSimulationMcpLog('get_robot_status()', { robot_id: 'R01' });
     updatePipelineStage('mcp_sel', 'COMPLETED', 'MCP Tools binding verified');
 
     // 6. OAuth Authentication
     updatePipelineStage('oauth', 'PROCESSING', 'Keycloak introspection of Bearer token');
     await delay(900);
-    addEvent('AUTH_SUCCESS', 'Keycloak', 'Token verified: scope mcp:execute', 'Robot R01');
+    addSimulationEvent('AUTH_SUCCESS', 'Keycloak', 'Token verified: scope mcp:execute', 'Robot R01');
     updatePipelineStage('oauth', 'COMPLETED', 'OAuth Access Granted');
 
     // 7. MCP Tool Execution: Dispatch R01 to pick package P104
     updatePipelineStage('mcp_exec', 'PROCESSING', 'Calling dispatch_robot(R01, P104)');
-    addEvent('TOOL_CALL', 'Supervisor', 'dispatch_robot(R01, P104, RAW_MATERIAL)', 'MCP Gateway');
-    addMcpLog('dispatch_robot()', { robot_id: 'R01', package_id: 'P104', destination: 'RAW_MATERIAL' });
+    addSimulationEvent('TOOL_CALL', 'Supervisor', 'dispatch_robot(R01, P104, RAW_MATERIAL)', 'MCP Gateway');
+    addSimulationMcpLog('dispatch_robot()', { robot_id: 'R01', package_id: 'P104', destination: 'RAW_MATERIAL' });
     await delay(900);
     updatePipelineStage('mcp_exec', 'COMPLETED', 'Tool executed in 38ms');
 
@@ -251,7 +258,7 @@ export function App() {
           : r
       )
     );
-    addEvent('ROBOT_PICK', 'Robot R01', 'Picked Package P104 from Raw Material Storage');
+    addSimulationEvent('ROBOT_PICK', 'Robot R01', 'Picked Package P104 from Raw Material Storage');
     await delay(1500);
 
     // R01 arrives at Assembly & hands over P104
@@ -273,7 +280,7 @@ export function App() {
     setPackages((prev) =>
       prev.map((p) => (p.id === 'P104' ? { ...p, currentStation: 'assembly', progressPercent: 40 } : p))
     );
-    addEvent('PACKAGE_MOVED', 'Robot R01', 'Transferred P104 to Assembly Station', 'Assembly');
+    addSimulationEvent('PACKAGE_MOVED', 'Robot R01', 'Transferred P104 to Assembly Station', 'Assembly');
 
     // 9. Robot R02 processes assembly
     updatePipelineStage('action', 'PROCESSING', 'Robot R02 performing welding & join on P104');
@@ -326,7 +333,7 @@ export function App() {
     setPackages((prev) =>
       prev.map((p) => (p.id === 'P104' ? { ...p, currentStation: 'inspection', progressPercent: 75 } : p))
     );
-    addEvent('ROBOT_DELIVER', 'Robot R02', 'Delivered P104 to 6G Inspection Cell');
+    addSimulationEvent('ROBOT_DELIVER', 'Robot R02', 'Delivered P104 to 6G Inspection Cell');
 
     // 10. R03 6G Laser Inspection Scan
     setLaserScanning(true);
@@ -341,8 +348,8 @@ export function App() {
           : r
       )
     );
-    addEvent('TOOL_CALL', 'Supervisor', 'assign_task(R03, INSPECTION)', 'MCP Server');
-    addMcpLog('assign_task()', { robot_id: 'R03', task: 'INSPECTION' });
+    addSimulationEvent('TOOL_CALL', 'Supervisor', 'assign_task(R03, INSPECTION)', 'MCP Server');
+    addSimulationMcpLog('assign_task()', { robot_id: 'R03', task: 'INSPECTION' });
     await delay(2000);
     setLaserScanning(false);
 
@@ -382,7 +389,7 @@ export function App() {
     setPackages((prev) =>
       prev.map((p) => (p.id === 'P104' ? { ...p, currentStation: 'packaging', progressPercent: 100 } : p))
     );
-    addEvent('TASK_COMPLETED', 'Supervisor', 'Order #104 Completed 100%');
+    addSimulationEvent('TASK_COMPLETED', 'Supervisor', 'Order #104 Completed 100%');
 
     // 11. Complete Stage
     updatePipelineStage('robot', 'COMPLETED', 'Robots R01, R02, R03 executed tasks');
@@ -396,7 +403,7 @@ export function App() {
 
   // ---------------- SIMULATE ROBOT FAILURE & RECOVERY SCENARIO ----------------
   const handleSimulateFailure = async () => {
-    addEvent('NETWORK_EVENT', 'System', '⚡ SIMULATING ROBOT R02 FAILURE...', undefined, 'failed');
+    addSimulationEvent('NETWORK_EVENT', 'System', '⚡ SIMULATING ROBOT R02 FAILURE...', undefined, 'failed');
 
     // Mark R02 as ERROR / OFFLINE
     setRobots((prev) =>
@@ -405,7 +412,7 @@ export function App() {
           ? {
               ...r,
               status: 'ERROR',
-              currentTask: 'CONNECTION LOST / E-STOP',
+              currentTask: 'Simulated connection loss',
             }
           : r
       )
@@ -413,20 +420,20 @@ export function App() {
     await delay(1000);
 
     // Supervisor detects failure via MCP get_robot_status()
-    addEvent('SECURITY_EVENT', 'Supervisor', '⚠ ROBOT R02 FAILURE DETECTED', undefined, 'failed');
-    addEvent('TOOL_CALL', 'Supervisor', 'get_robot_status()', 'MCP Server');
-    addMcpLog('get_robot_status()', { status: 'OFFLINE' });
+    addSimulationEvent('SECURITY_EVENT', 'Supervisor', '⚠ ROBOT R02 FAILURE DETECTED', undefined, 'failed');
+    addSimulationEvent('TOOL_CALL', 'Supervisor', 'get_robot_status()', 'MCP Server');
+    addSimulationMcpLog('get_robot_status()', { status: 'OFFLINE' });
     await delay(1200);
 
     // Supervisor discovers replacement robot R03
-    addEvent('AGENT_MESSAGE', 'Supervisor', 'Initiated failover recovery ➔ Querying backup robot with skill [welding_and_transfer]');
-    addEvent('TOOL_CALL', 'Supervisor', 'find_robot_by_skill(skill="welding_and_transfer")', 'MCP Gateway');
-    addMcpLog('find_robot_by_skill()', { skill: 'welding_and_transfer' });
+    addSimulationEvent('AGENT_MESSAGE', 'Supervisor', 'Initiated failover recovery ➔ Querying backup robot with skill [welding_and_transfer]');
+    addSimulationEvent('TOOL_CALL', 'Supervisor', 'find_robot_by_skill(skill="welding_and_transfer")', 'MCP Gateway');
+    addSimulationMcpLog('find_robot_by_skill()', { skill: 'welding_and_transfer' });
     await delay(1200);
 
     // Reassign task to R03
-    addEvent('TASK_STARTED', 'Supervisor', 'Reallocated assembly task to Robot R03 (Self-Healing Recovery)');
-    addMcpLog('assign_task()', { robot_id: 'R03', reallocated: true });
+    addSimulationEvent('TASK_STARTED', 'Supervisor', 'Reallocated assembly task to Robot R03 (Self-Healing Recovery)');
+    addSimulationMcpLog('assign_task()', { robot_id: 'R03', reallocated: true });
     setRobots((prev) =>
       prev.map((r) =>
         r.id === 'R03'
@@ -455,7 +462,7 @@ export function App() {
     setRobots((prev) =>
       prev.map((r) => (r.id === 'R03' ? { ...r, status: 'IDLE', currentTask: 'Idle' } : r))
     );
-    addEvent('TASK_COMPLETED', 'Supervisor', '✓ AGENT SELF-HEALING RECOVERY COMPLETE');
+    addSimulationEvent('TASK_COMPLETED', 'Supervisor', '✓ AGENT SELF-HEALING RECOVERY COMPLETE');
   };
 
   // ---------------- USER NATURAL LANGUAGE COMMAND HANDLER ----------------
@@ -516,11 +523,11 @@ export function App() {
     });
 
     addEvent(
-      status === 'failed' ? 'TASK_FAILED' : status === 'completed' || status === 'accepted' || status === 'cancelled' ? 'TASK_COMPLETED' : 'AGENT_MESSAGE',
+      status === 'failed' ? 'TASK_FAILED' : status === 'completed' ? 'TASK_COMPLETED' : status === 'accepted' ? 'TASK_ACCEPTED' : status === 'cancelled' ? 'TASK_CANCELLED' : 'AGENT_MESSAGE',
       'Operations API',
       reply,
       undefined,
-      status === 'failed' ? 'failed' : status === 'submitted' ? 'processing' : 'success'
+      status === 'failed' ? 'failed' : status === 'submitted' ? 'processing' : status === 'cancelled' ? 'info' : 'success'
     );
     setIsProcessingCommand(false);
   };
@@ -530,17 +537,16 @@ export function App() {
 
   const handleStopRobot = (robotId: string) => {
     setRobots((prev) =>
-      prev.map((r) => (r.id === robotId ? { ...r, status: 'ERROR', currentTask: 'E-STOP HALTED' } : r))
+      prev.map((r) => (r.id === robotId ? { ...r, status: 'ERROR', currentTask: 'Locally simulated stop state' } : r))
     );
-    addEvent('SECURITY_EVENT', 'User', `Emergency Stop issued for ${robotId}`, undefined, 'failed');
-    addMcpLog('stop_robot()', { robot_id: robotId });
+    addEvent('NETWORK_EVENT', 'Factory simulation', `Simulated stop state applied to ${robotId}; no hardware command was sent.`, undefined, 'info');
+    addMcpLog('simulate_robot_stop()', { robot_id: robotId }, 0, 'SUCCESS', { simulation: true, hardware_contacted: false }, 'SIMULATION');
     setSelectedRobot(null);
   };
 
   const handleReset = () => {
     setStations(INITIAL_STATIONS);
     setRobots(INITIAL_ROBOTS);
-    setAgents(INITIAL_AGENTS);
     setPipeline(INITIAL_PIPELINE);
     setActiveConveyor(false);
     setLaserScanning(false);
@@ -554,10 +560,8 @@ export function App() {
     <div className="app-frame flex flex-col h-screen w-screen overflow-hidden bg-[#080b12] text-slate-100 font-sans">
       {/* Top Industrial Header */}
       <Header
-        systemStatus={backendConnected ? 'ONLINE' : 'OFFLINE'}
-        mcpConnected={backendConnected}
-        authActive={backendConnected}
-        showDemoDataBadge={currentPage !== 'factory' || showFactorySimulation}
+        gatewayStatus={backendConnected === null ? 'checking' : backendConnected ? 'connected' : 'offline'}
+        modeLabel={showFactorySimulation ? 'LOCAL SIMULATION' : currentPage === 'network' ? 'SAMPLE TOPOLOGY' : currentPage === 'mcp' ? 'LOCAL RUN SIMULATION' : currentPage === 'logs' ? 'SESSION EVENTS' : undefined}
         onStartDemo={runDemoScenario}
         onSimulateFailure={handleSimulateFailure}
         onReset={handleReset}
@@ -598,7 +602,7 @@ export function App() {
           />
         )}
 
-        {currentPage === 'network' && <AgentNetworkPage agents={agents} robots={robots} />}
+        {currentPage === 'network' && <AgentNetworkPage robots={robots} />}
 
         {currentPage === 'mcp' && (
           <MCPControlPage

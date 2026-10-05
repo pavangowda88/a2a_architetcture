@@ -2,11 +2,13 @@ import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'rea
 import { AlertCircle, Check, CheckCircle2, Clock3, LoaderCircle, Plus, RefreshCw, Send, XCircle } from 'lucide-react';
 import { assignTask, fetchTasks, ManagedTask } from '../services/api';
 
-type TaskFilter = 'all' | 'pending' | 'in-progress' | 'completed' | 'failed';
+type TaskFilter = 'all' | 'pending' | 'accepted' | 'queued' | 'in-progress' | 'completed' | 'failed';
 
 function taskStatus(status?: string): TaskFilter | 'cancelled' {
   const value = (status || 'pending').toLowerCase();
-  if (['active', 'accepted', 'running', 'in_progress'].includes(value)) return 'in-progress';
+  if (value === 'accepted') return 'accepted';
+  if (value === 'queued') return 'queued';
+  if (['active', 'running', 'in_progress'].includes(value)) return 'in-progress';
   if (['completed', 'success', 'succeeded'].includes(value)) return 'completed';
   if (['failed', 'error'].includes(value)) return 'failed';
   if (['cancelled', 'canceled'].includes(value)) return 'cancelled';
@@ -28,6 +30,8 @@ function formatDate(value?: string) {
 const filters: { id: TaskFilter; label: string }[] = [
   { id: 'all', label: 'All tasks' },
   { id: 'pending', label: 'Pending' },
+  { id: 'accepted', label: 'Accepted' },
+  { id: 'queued', label: 'Queued' },
   { id: 'in-progress', label: 'In progress' },
   { id: 'completed', label: 'Completed' },
   { id: 'failed', label: 'Failed' },
@@ -69,7 +73,7 @@ export const TasksPage: React.FC = () => {
     total[taskStatus(task.status)] += 1;
     total.all += 1;
     return total;
-  }, { all: 0, pending: 0, 'in-progress': 0, completed: 0, failed: 0, cancelled: 0 }), [tasks]);
+  }, { all: 0, pending: 0, accepted: 0, queued: 0, 'in-progress': 0, completed: 0, failed: 0, cancelled: 0 }), [tasks]);
 
   const visibleTasks = useMemo(
     () => tasks.filter((task) => filter === 'all' || taskStatus(task.status) === filter),
@@ -172,7 +176,7 @@ export const TasksPage: React.FC = () => {
             return (
               <article className="managed-task-row" key={taskId} style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}>
                 <div className={`managed-task-status status-${status}`} aria-label={`Status: ${displayStatus(task.status)}`}>
-                  {status === 'completed' ? <CheckCircle2 size={17} /> : status === 'failed' ? <AlertCircle size={17} /> : status === 'in-progress' ? <LoaderCircle size={17} /> : <Clock3 size={17} />}
+                  {status === 'completed' ? <CheckCircle2 size={17} /> : status === 'accepted' ? <Check size={17} /> : status === 'failed' ? <AlertCircle size={17} /> : status === 'cancelled' ? <XCircle size={17} /> : status === 'in-progress' ? <LoaderCircle size={17} /> : <Clock3 size={17} />}
                 </div>
                 <div className="managed-task-main">
                   <h3>{task.task || 'Assigned task'}</h3>

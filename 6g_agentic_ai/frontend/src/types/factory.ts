@@ -106,6 +106,8 @@ export type EventType =
   | 'AGENT_MESSAGE'
   | 'TASK_CREATED'
   | 'TASK_STARTED'
+  | 'TASK_ACCEPTED'
+  | 'TASK_CANCELLED'
   | 'TASK_COMPLETED'
   | 'TASK_FAILED'
   | 'TOOL_CALL'

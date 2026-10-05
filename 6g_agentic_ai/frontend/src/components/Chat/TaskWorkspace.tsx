@@ -23,6 +23,7 @@ import {
 import { CommandToolStep } from './CommandOutputPanel';
 import type { Station } from '../../types/factory';
 import { classifyTaskRun, getRobotExecutionState, getRobotMilestones, resolveRobotRoute } from './taskVisualization';
+import { redactSensitiveValue } from '../../services/redaction';
 
 export type TaskRunStatus = 'submitted' | 'waiting' | 'confirmation' | 'accepted' | 'completed' | 'failed' | 'cancelled';
 
@@ -47,7 +48,7 @@ interface TaskWorkspaceProps {
   conversation: ConversationMessage[];
   activeRun: TaskRun | null;
   isProcessing: boolean;
-  backendConnected: boolean;
+  backendConnected: boolean | null;
   onConfirm: () => void;
   onCancel: () => void;
   stations: Station[];
@@ -55,16 +56,7 @@ interface TaskWorkspaceProps {
 
 type TaskKind = 'robot' | 'discovery' | 'authentication' | 'service' | 'message' | 'query' | 'generic';
 
-function redact(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redact);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
-    key,
-    /token|secret|password|authorization/i.test(key) ? '[redacted]' : redact(entry),
-  ]));
-}
-
-const pretty = (value: unknown) => JSON.stringify(redact(value), null, 2);
+const pretty = (value: unknown) => JSON.stringify(redactSensitiveValue(value), null, 2);
 
 function findValue(value: unknown, names: string[]): unknown {
   if (Array.isArray(value)) {
@@ -428,7 +420,7 @@ export const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({
       <section className="conversation-panel" aria-label="Chat conversation">
         <header className="workspace-panel-header">
           <div><MessageSquare size={16} /><h2>Operations chat</h2></div>
-          <span className={`connection-tag ${backendConnected ? 'is-connected' : 'is-offline'}`}><i />{backendConnected ? 'MCP connected' : 'Backend unavailable'}</span>
+          <span className={`connection-tag ${backendConnected === null ? 'is-checking' : backendConnected ? 'is-connected' : 'is-offline'}`}><i />{backendConnected === null ? 'Checking gateway' : backendConnected ? 'MCP gateway reachable' : 'Gateway unavailable'}</span>
         </header>
         <div className="conversation-scroll" aria-live="polite" aria-relevant="additions text">
           {conversation.length === 0 ? <div className="conversation-empty"><div className="conversation-empty-icon"><MessageSquare size={19} /></div><strong>What should the network do?</strong><p>Ask about agent discovery, UE authentication, service requests, messages, or robot task assignment.</p></div> : conversation.map((message) => (
@@ -458,7 +450,7 @@ export const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({
           <ToolSteps steps={activeRun.steps} />
           {activeRun.status === 'submitted' && <div className="task-pending-state"><Clock3 size={16} /><div><strong>Waiting for backend response</strong><span>No agent progress or physical movement is being assumed.</span></div></div>}
         </div> : <div className="task-idle-state"><div className="task-idle-icon"><Activity size={20} /></div><strong>Task activity will appear here</strong><p>Submit a chat request to see its actual MCP tool, arguments, result, and task-specific view.</p><div className="idle-capabilities"><span><Network size={13} /> Agent discovery</span><span><ShieldCheck size={13} /> UE authentication</span><span><Bot size={13} /> Robot assignment</span><span><MessageSquare size={13} /> A2A messaging</span></div></div>}
-        <footer className="task-data-footer"><span className={backendConnected ? 'data-live' : 'data-offline'}><i />{backendConnected ? 'Live backend connection' : 'Backend connection unavailable'}</span><span>Progress shown only when returned</span></footer>
+        <footer className="task-data-footer"><span className={backendConnected === null ? 'data-checking' : backendConnected ? 'data-live' : 'data-offline'}><i />{backendConnected === null ? 'Checking gateway connection' : backendConnected ? 'MCP gateway reachable' : 'Gateway connection unavailable'}</span><span>Progress shown only when returned</span></footer>
       </section>
     </div>
   );

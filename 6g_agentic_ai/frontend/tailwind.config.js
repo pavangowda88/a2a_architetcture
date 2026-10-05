@@ -11,13 +11,13 @@ export default {
     extend: {
       colors: {
         factory: {
-          dark: "#0a0d14",
-          card: "#121824",
-          border: "#1e293b",
-          accent: "#38bdf8",
-          emerald: "#10b981",
-          amber: "#f59e0b",
-          rose: "#f43f5e",
+          dark: "#edf3f7",
+          card: "#ffffff",
+          border: "#7b8d9c",
+          accent: "#315f7e",
+          emerald: "#3e704b",
+          amber: "#745014",
+          rose: "#98453f",
           purple: "#a855f7",
           cyan: "#06b6d4"
         }
@@ -31,8 +31,8 @@ export default {
       },
       keyframes: {
         pulseGlow: {
-          '0%, 100%': { opacity: '1', filter: 'drop-shadow(0 0 8px rgba(56, 189, 248, 0.6))' },
-          '50%': { opacity: '0.6', filter: 'drop-shadow(0 0 2px rgba(56, 189, 248, 0.2))' }
+          '0%, 100%': { opacity: '1', filter: 'drop-shadow(0 0 8px rgba(49, 95, 126, 0.35))' },
+          '50%': { opacity: '0.6', filter: 'drop-shadow(0 0 2px rgba(49, 95, 126, 0.12))' }
         },
         conveyorMove: {
           '0%': { backgroundPosition: '0 0' },

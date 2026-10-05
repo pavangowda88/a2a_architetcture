@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Cpu, Play, RefreshCw, AlertTriangle, MoreHorizontal } from 'lucide-react';
-import { SystemStatusType } from '../../types/factory';
+import { Cpu, Play, RefreshCw, AlertTriangle, MoreHorizontal } from 'lucide-react';
 
 interface HeaderProps {
-  systemStatus: SystemStatusType;
-  mcpConnected: boolean;
-  authActive: boolean;
-  showDemoDataBadge: boolean;
+  gatewayStatus: 'checking' | 'connected' | 'offline';
+  modeLabel?: string;
   onStartDemo: () => void;
   onSimulateFailure: () => void;
   onReset: () => void;
@@ -14,10 +11,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  systemStatus,
-  mcpConnected,
-  authActive,
-  showDemoDataBadge,
+  gatewayStatus,
+  modeLabel,
   onStartDemo,
   onSimulateFailure,
   onReset,
@@ -45,47 +40,29 @@ export const Header: React.FC<HeaderProps> = ({
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="text-sm font-semibold tracking-wide text-white uppercase">
-              Autonomous factory
+              6G core operations
             </h1>
             <span className="product-tag">
               6G · A2A · MCP
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">Factory operations center</p>
+          <p className="text-[11px] text-slate-400">Agent network · factory simulation</p>
         </div>
       </div>
 
-      {/* Center Status Indicators */}
+      {/* The status endpoint checks the MCP gateway and its live tool catalog. */}
       <div className="system-status-group hidden lg:flex items-center space-x-4 px-4 py-1.5 rounded-xl">
         <div className="flex items-center space-x-2">
-          <span className={`status-indicator ${systemStatus === 'ONLINE' ? 'online' : 'offline'}`} />
+          <span className={`status-indicator ${gatewayStatus === 'connected' ? 'online' : gatewayStatus === 'offline' ? 'offline' : 'checking'}`} />
           <span className="text-[11px] font-medium text-slate-300">
-            System <span className={systemStatus === 'ONLINE' ? 'text-emerald-400' : 'text-rose-400'}>{systemStatus === 'ONLINE' ? 'Operational' : 'Offline'}</span>
-          </span>
-        </div>
-
-        <div className="h-4 w-px bg-slate-800" />
-
-        <div className="flex items-center space-x-1.5">
-          <Cpu className={`w-3.5 h-3.5 ${mcpConnected ? 'text-sky-400' : 'text-slate-500'}`} />
-          <span className="text-[11px] text-slate-300">
-            MCP <span className={mcpConnected ? 'text-sky-400 font-medium' : 'text-slate-500'}>{mcpConnected ? 'Connected' : 'Offline'}</span>
-          </span>
-        </div>
-
-        <div className="h-4 w-px bg-slate-800" />
-
-        <div className="flex items-center space-x-1.5">
-          <ShieldCheck className={`w-3.5 h-3.5 ${authActive ? 'text-amber-400' : 'text-slate-500'}`} />
-          <span className="text-[11px] text-slate-300">
-            Auth <span className={authActive ? 'text-amber-400 font-medium' : 'text-slate-500'}>{authActive ? 'Active' : 'Inactive'}</span>
+            Gateway <span className={gatewayStatus === 'connected' ? 'text-emerald-400' : gatewayStatus === 'offline' ? 'text-rose-400' : 'text-amber-400'}>{gatewayStatus === 'connected' ? 'Reachable' : gatewayStatus === 'offline' ? 'Offline' : 'Checking'}</span>
           </span>
         </div>
       </div>
 
       {/* Right Action Bar & Clock */}
       <div className="flex items-center space-x-3">
-        {showDemoDataBadge && <span className="data-mode-badge">DEMO DATA</span>}
+        {modeLabel && <span className="data-mode-badge">{modeLabel}</span>}
         {/* Demo Button */}
         <button
           onClick={onStartDemo}

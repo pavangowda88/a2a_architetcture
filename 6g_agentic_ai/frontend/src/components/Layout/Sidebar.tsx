@@ -38,6 +38,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onPageChange, act
               key={item.id}
               onClick={() => onPageChange(item.id as PageId)}
               title={item.label}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
                 isActive
                   ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-sm shadow-sky-500/10'

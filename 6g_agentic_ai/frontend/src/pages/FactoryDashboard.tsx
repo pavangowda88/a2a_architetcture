@@ -29,7 +29,7 @@ interface FactoryDashboardProps {
   onSelectPackage: (pkg: Package) => void;
   conversation: ConversationMessage[];
   activeRun: TaskRun | null;
-  backendConnected: boolean;
+  backendConnected: boolean | null;
   onConfirmOperation: () => void;
   onCancelOperation: () => void;
   showFactorySimulation: boolean;

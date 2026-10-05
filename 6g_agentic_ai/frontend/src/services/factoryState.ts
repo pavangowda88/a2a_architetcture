@@ -90,14 +90,14 @@ export const INITIAL_AGENTS: FactoryAgent[] = [
 ];
 
 export const AVAILABLE_MCP_TOOLS: MCPTool[] = [
-  { name: 'get_factory_status()', description: 'Retrieve real-time telemetry from all factory stations and conveyor belts.', category: 'factory' },
-  { name: 'get_robot_status()', description: 'Check availability, battery %, location, and payload capacity of all robot agents.', category: 'robot' },
-  { name: 'dispatch_robot()', description: 'Dispatch a specific robot agent to pick, transport, or deliver a factory package.', category: 'robot' },
-  { name: 'stop_robot()', description: 'E-STOP command to halt a robot agent immediately in case of emergency.', category: 'robot' },
-  { name: 'authenticate_agent()', description: 'Trigger Keycloak OAuth 2.0 / Agent-AKA token validation for a robot.', category: 'auth' },
-  { name: 'assign_task()', description: 'Queue and allocate a new manufacturing work order to the optimal robot.', category: 'factory' },
-  { name: 'get_package_status()', description: 'Query exact position, status, and assembly step of a package.', category: 'factory' },
-  { name: 'move_package()', description: 'Command conveyor belts to move packages between workstation zones.', category: 'factory' },
+  { name: 'get_factory_status()', description: 'Read seeded station and conveyor state from the local demo; this is not live telemetry.', category: 'factory' },
+  { name: 'get_robot_status()', description: 'Read sample robot availability, battery, location, and payload values from the local demo.', category: 'robot' },
+  { name: 'dispatch_robot()', description: 'Simulate a robot assignment in local demo state; no hardware command is sent.', category: 'robot' },
+  { name: 'stop_robot()', description: 'Simulate a local stopped state; this does not send an emergency-stop command to hardware.', category: 'robot' },
+  { name: 'authenticate_agent()', description: 'Show sample authentication state; this does not perform Keycloak or Agent-AKA validation.', category: 'auth' },
+  { name: 'assign_task()', description: 'Simulate a manufacturing task assignment in local demo state.', category: 'factory' },
+  { name: 'get_package_status()', description: 'Read sample package position and progress from the local demo.', category: 'factory' },
+  { name: 'move_package()', description: 'Simulate package movement between workstation zones; no conveyor is controlled.', category: 'factory' },
 ];
 
 export const INITIAL_PIPELINE: PipelineStage[] = [

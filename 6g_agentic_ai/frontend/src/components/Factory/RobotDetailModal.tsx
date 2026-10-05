@@ -22,12 +22,13 @@ export const RobotDetailModal: React.FC<RobotDetailModalProps> = ({ robot, onClo
             </div>
             <div>
               <h2 className="text-sm font-mono font-bold text-white uppercase tracking-wider">{robot.name}</h2>
-              <p className="text-xs font-mono text-slate-400">AGENT ID: {robot.agentId}</p>
+              <p className="text-xs font-mono text-slate-400">AGENT ID: {robot.agentId} · SAMPLE VALUES</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all"
+            aria-label="Close robot details"
+            className="grid h-11 w-11 place-items-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all"
           >
             <X className="w-5 h-5" />
           </button>
@@ -109,15 +110,15 @@ export const RobotDetailModal: React.FC<RobotDetailModalProps> = ({ robot, onClo
         {/* Task Checkpoint Checklist */}
         <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl space-y-1.5 text-xs font-mono">
           <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">
-            TASK CHECKPOINTS
+            DEMO SEQUENCE
           </span>
           <div className="flex items-center space-x-2 text-emerald-400">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Receive assignment via MCP</span>
+            <span>Assignment shown in demo</span>
           </div>
           <div className="flex items-center space-x-2 text-emerald-400">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Keycloak OAuth Token Introspected</span>
+            <span>Sample authentication state</span>
           </div>
           <div
             className={`flex items-center space-x-2 ${
@@ -125,29 +126,32 @@ export const RobotDetailModal: React.FC<RobotDetailModalProps> = ({ robot, onClo
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Move package to destination</span>
+            <span>Simulated package movement</span>
           </div>
           <div className="flex items-center space-x-2 text-slate-600">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Deliver workpiece & confirm</span>
+            <span>Simulated handoff</span>
           </div>
         </div>
 
         {/* Action Controls */}
-        <div className="pt-2 flex items-center space-x-3">
-          <button
-            onClick={() => onStopRobot(robot.id)}
-            className="flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-mono font-bold transition-all active:scale-95"
-          >
-            <Square className="w-4 h-4 text-rose-400 fill-current" />
-            <span>STOP ROBOT (E-STOP)</span>
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono font-semibold border border-slate-700 transition-all"
-          >
-            CLOSE
-          </button>
+        <div className="pt-2 space-y-2">
+          <p className="text-[10px] font-mono leading-relaxed text-amber-300">Demo action only. No command is sent to robot hardware.</p>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => onStopRobot(robot.id)}
+              className="min-h-11 flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-mono font-bold transition-all active:scale-95"
+            >
+              <Square className="w-4 h-4 text-rose-400 fill-current" />
+              <span>SIMULATE STOP</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="min-h-11 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono font-semibold border border-slate-700 transition-all"
+            >
+              CLOSE
+            </button>
+          </div>
         </div>
       </div>
     </div>

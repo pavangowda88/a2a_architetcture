@@ -3,6 +3,7 @@ import { AlertCircle, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Cod
 import { fetchSystemStatus } from '../services/api';
 import { createInitialSimulationState, MCPSimulationState, simulateMCPTool } from '../services/mcpSimulation';
 import { MCPToolCallLog, MCPToolDefinition } from '../types/factory';
+import { redactSensitiveValue } from '../services/redaction';
 
 interface MCPControlPageProps {
   logs: MCPToolCallLog[];
@@ -504,7 +505,7 @@ export const MCPControlPage: React.FC<MCPControlPageProps> = ({ logs, onExecuteT
                   <span className={`mcp-status-pill ${log.status === 'FAILED' ? 'failed' : log.status === 'RUNNING' ? 'running' : 'success'}`}>{log.status}</span>
                 </div>
                 <div className="mcp-history-meta"><span className={`mcp-mode-tag ${log.mode === 'SIMULATION' ? 'simulation' : ''}`}>{log.mode === 'SIMULATION' ? 'SIMULATION' : 'LIVE / CHAT'}</span><span>{log.timestamp}</span><span>{log.executionTimeMs} ms</span></div>
-                <details className="mcp-history-details"><summary>Inspect request and result</summary><strong>Request</strong><pre>{JSON.stringify(log.arguments, null, 2)}</pre><strong>Result</strong><pre>{JSON.stringify(log.result ?? null, null, 2)}</pre></details>
+                <details className="mcp-history-details"><summary>Inspect request and result</summary><strong>Request</strong><pre>{JSON.stringify(redactSensitiveValue(log.arguments), null, 2)}</pre><strong>Result</strong><pre>{JSON.stringify(redactSensitiveValue(log.result ?? null), null, 2)}</pre></details>
               </article>)}</div>
             <div className="mcp-panel-footnote"><ShieldAlert size={13} aria-hidden="true" /> Reset clears only local simulation records and demo state.</div>
           </aside>

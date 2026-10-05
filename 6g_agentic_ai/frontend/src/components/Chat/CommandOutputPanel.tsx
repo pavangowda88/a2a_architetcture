@@ -39,7 +39,7 @@ function inlineMarkdown(text: string): React.ReactNode[] {
   return result;
 }
 
-function markdownBlocks(markdown: string): React.ReactNode[] {
+export function markdownBlocks(markdown: string): React.ReactNode[] {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const blocks: React.ReactNode[] = [];
   const cells = (line: string) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());

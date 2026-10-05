@@ -17,10 +17,12 @@ import {
   Route,
   ShieldCheck,
   Terminal,
+  Trash2,
   UserRound,
   X,
 } from 'lucide-react';
-import { CommandToolStep } from './CommandOutputPanel';
+import { markdownBlocks } from './CommandOutputPanel';
+import type { CommandToolStep } from './CommandOutputPanel';
 import type { Station } from '../../types/factory';
 import { classifyTaskRun, getRobotExecutionState, getRobotMilestones, resolveRobotRoute } from './taskVisualization';
 import { redactSensitiveValue } from '../../services/redaction';
@@ -51,6 +53,7 @@ interface TaskWorkspaceProps {
   backendConnected: boolean | null;
   onConfirm: () => void;
   onCancel: () => void;
+  onClearConversation: () => void;
   stations: Station[];
 }
 
@@ -403,6 +406,7 @@ export const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({
   backendConnected,
   onConfirm,
   onCancel,
+  onClearConversation,
   stations,
 }) => {
   const conversationEnd = useRef<HTMLDivElement>(null);
@@ -420,13 +424,21 @@ export const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({
       <section className="conversation-panel" aria-label="Chat conversation">
         <header className="workspace-panel-header">
           <div><MessageSquare size={16} /><h2>Operations chat</h2></div>
-          <span className={`connection-tag ${backendConnected === null ? 'is-checking' : backendConnected ? 'is-connected' : 'is-offline'}`}><i />{backendConnected === null ? 'Checking gateway' : backendConnected ? 'MCP gateway reachable' : 'Gateway unavailable'}</span>
+          <div className="operations-chat-actions">
+            <span className={`connection-tag ${backendConnected === null ? 'is-checking' : backendConnected ? 'is-connected' : 'is-offline'}`}><i />{backendConnected === null ? 'Checking' : backendConnected ? 'Online' : 'Offline'}</span>
+            <button type="button" className="clear-chat-button" onClick={onClearConversation} disabled={conversation.length === 0} aria-label="Clear operations chat" title="Clear operations chat">
+              <Trash2 size={13} /><span>Clear</span>
+            </button>
+          </div>
         </header>
         <div className="conversation-scroll" aria-live="polite" aria-relevant="additions text">
           {conversation.length === 0 ? <div className="conversation-empty"><div className="conversation-empty-icon"><MessageSquare size={19} /></div><strong>What should the network do?</strong><p>Ask about agent discovery, UE authentication, service requests, messages, or robot task assignment.</p></div> : conversation.map((message) => (
             <article className={`chat-message ${message.role}`} key={message.id}>
               <div className="chat-message-icon">{message.role === 'user' ? <UserRound size={14} /> : <Bot size={14} />}</div>
-              <div className="chat-message-content"><span className="chat-message-role">{message.role === 'user' ? 'You' : '6G assistant'}</span><p>{message.content}</p></div>
+              <div className="chat-message-content">
+                <span className="chat-message-role">{message.role === 'user' ? 'You' : '6G assistant'}</span>
+                <div className="chat-message-markdown">{markdownBlocks(message.content)}</div>
+              </div>
             </article>
           ))}
           {isProcessing && <div className="chat-waiting"><span className="chat-pulse" /><span>Request sent · waiting for MCP response</span></div>}
@@ -441,12 +453,12 @@ export const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({
           <span className={`task-status-chip status-${status}`}><StatusIcon status={status} />{statusLabel(status)}</span>
         </header>
         {activeRun ? <div className="task-detail-scroll">
-          <div className="task-request-summary"><span className="task-section-label">CURRENT REQUEST</span><p>{activeRun.command}</p><div className="task-request-meta"><span>{taskLabel(kind)}</span><span>{activeRun.startedAt}</span>{activeRun.durationMs !== undefined && <span>{activeRun.durationMs} ms</span>}</div></div>
+          <div className="task-request-summary"><span className="task-section-label">CURRENT REQUEST</span><div className="task-command-markdown chat-message-markdown">{markdownBlocks(activeRun.command)}</div><div className="task-request-meta"><span>{taskLabel(kind)}</span><span>{activeRun.startedAt}</span>{activeRun.durationMs !== undefined && <span>{activeRun.durationMs} ms</span>}</div></div>
           <TaskFlow run={activeRun} kind={kind} />
           <StageRail status={status} />
           <div className="task-visualization"><TaskDiagram run={activeRun} kind={kind} stations={stations} /></div>
           {activeRun.status === 'failed' && activeRun.steps.some((step) => step.error || findValue(step.output, ['error'])) && <div className="task-failure-callout"><AlertTriangle size={14} /><p>{String(activeRun.steps.find((step) => step.error)?.error || findValue(activeRun.steps.map((step) => step.output), ['error']))}</p></div>}
-          {activeRun.reply && <div className="task-reply"><span className="task-section-label">ASSISTANT RESPONSE</span><p>{activeRun.reply}</p></div>}
+          {activeRun.reply && <div className="task-reply"><span className="task-section-label">ASSISTANT RESPONSE</span><div className="task-reply-markdown chat-message-markdown">{markdownBlocks(activeRun.reply)}</div></div>}
           <ToolSteps steps={activeRun.steps} />
           {activeRun.status === 'submitted' && <div className="task-pending-state"><Clock3 size={16} /><div><strong>Waiting for backend response</strong><span>No agent progress or physical movement is being assumed.</span></div></div>}
         </div> : <div className="task-idle-state"><div className="task-idle-icon"><Activity size={20} /></div><strong>Task activity will appear here</strong><p>Submit a chat request to see its actual MCP tool, arguments, result, and task-specific view.</p><div className="idle-capabilities"><span><Network size={13} /> Agent discovery</span><span><ShieldCheck size={13} /> UE authentication</span><span><Bot size={13} /> Robot assignment</span><span><MessageSquare size={13} /> A2A messaging</span></div></div>}

@@ -583,7 +583,6 @@ export function App() {
             robots={robots}
             packages={packages}
             pipeline={pipeline}
-            events={events}
             activeConveyor={activeConveyor}
             laserScanning={laserScanning}
             isProcessingCommand={isProcessingCommand}
@@ -597,6 +596,7 @@ export function App() {
             backendConnected={backendConnected}
             onConfirmOperation={handleConfirmOperation}
             onCancelOperation={handleCancelOperation}
+            onClearConversation={() => setConversation([])}
             showFactorySimulation={showFactorySimulation}
             onShowTaskWorkspace={() => setShowFactorySimulation(false)}
           />

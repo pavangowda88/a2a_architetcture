@@ -3,14 +3,12 @@ import { CommandBar } from '../components/Chat/CommandBar';
 import { TaskWorkspace, ConversationMessage, TaskRun } from '../components/Chat/TaskWorkspace';
 import { ExecutionPipeline } from '../components/Pipeline/ExecutionPipeline';
 import { FactoryTwin } from '../components/Factory/FactoryTwin';
-import { EventLogPanel } from '../components/Events/EventLogPanel';
 import { ArrowLeft, FlaskConical } from 'lucide-react';
 import {
   Robot,
   Station,
   Package,
   PipelineStage,
-  FactoryEvent
 } from '../types/factory';
 
 interface FactoryDashboardProps {
@@ -18,7 +16,6 @@ interface FactoryDashboardProps {
   robots: Robot[];
   packages: Package[];
   pipeline: PipelineStage[];
-  events: FactoryEvent[];
   activeConveyor: boolean;
   laserScanning: boolean;
   isProcessingCommand: boolean;
@@ -32,6 +29,7 @@ interface FactoryDashboardProps {
   backendConnected: boolean | null;
   onConfirmOperation: () => void;
   onCancelOperation: () => void;
+  onClearConversation: () => void;
   showFactorySimulation: boolean;
   onShowTaskWorkspace: () => void;
 }
@@ -41,7 +39,6 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
   robots,
   packages,
   pipeline,
-  events,
   activeConveyor,
   laserScanning,
   isProcessingCommand,
@@ -55,6 +52,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
   backendConnected,
   onConfirmOperation,
   onCancelOperation,
+  onClearConversation,
   showFactorySimulation,
   onShowTaskWorkspace,
 }) => {
@@ -66,7 +64,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
       {showFactorySimulation && <div className="simulation-banner"><FlaskConical size={14} /><span>DEMO SIMULATION · Robot movement and station progress below are simulated</span><button type="button" onClick={onShowTaskWorkspace}><ArrowLeft size={14} /> Return to task workspace</button></div>}
       {showFactorySimulation && <ExecutionPipeline stages={pipeline} />}
 
-      {/* Factory floor and activity stream */}
+      {/* Factory floor and task workspace */}
       <div className="dashboard-layout flex-1 flex min-h-0 overflow-hidden">
         <main className={`dashboard-center flex-1 min-w-0 min-h-0 ${showFactorySimulation ? 'simulation-center' : 'task-center'}`}>
           {showFactorySimulation ? <FactoryTwin
@@ -86,11 +84,10 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({
             backendConnected={backendConnected}
             onConfirm={onConfirmOperation}
             onCancel={onCancelOperation}
+            onClearConversation={onClearConversation}
           />}
         </main>
 
-        {/* Recent activity */}
-        <EventLogPanel events={events} />
       </div>
     </div>
   );

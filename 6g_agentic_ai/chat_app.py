@@ -290,12 +290,21 @@ def _words(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9_]+", value.lower()))
 
 
+def _is_list_all_agents_request(message: str) -> bool:
+    query = _words(message)
+    asks_to_list = bool(query & {"list", "show", "display", "get", "find"})
+    mentions_agents = bool(query & {"agent", "agents", "card", "cards"})
+    means_all = bool(query & {"all", "every", "registered"})
+    return asks_to_list and mentions_agents and means_all
+
+
 def _choose_tool(message: str, tools: list[dict[str, Any]]) -> dict[str, Any] | None:
     query = _words(message)
     aliases = {
         "authenticate": {"attach", "authenticate", "authentication", "login"},
         "assign_task": {"assign", "move", "pick", "place", "deliver", "task", "robot"},
         "find_robot_by_skill": {"find", "robot", "skill", "capable"},
+        "list_registered_agents": {"list", "show", "display", "all", "every", "registered", "agents", "cards"},
         "get_ue_inbox": {"inbox", "messages", "received"},
         "find_agent": {"agent", "registry", "registered"},
         "list_active_sessions": {"active", "sessions", "session", "running"},
@@ -313,6 +322,8 @@ def _choose_tool(message: str, tools: list[dict[str, Any]]) -> dict[str, Any] | 
             score += 4
         if name == "get_ue_inbox" and "inbox" in query:
             score += 4
+        if name == "list_registered_agents" and {"all", "registered"} <= query:
+            score += 8
         if score > best_score:
             best, best_score = tool, score
     return best
@@ -441,7 +452,11 @@ def _coerce_tool_run_steps(tool_name: str | None, steps: list[dict[str, Any]] | 
 
 async def _handle_chat(request: ChatRequest) -> dict[str, Any]:
     tools = await gateway.tools()
-    if LLM_ENABLED:
+    list_all_agents = (
+        request.conversation_id not in _pending
+        and _is_list_all_agents_request(request.message)
+    )
+    if LLM_ENABLED and not list_all_agents:
         response = await _handle_llm_chat(request, tools)
         if response.get("steps"):
             _latest_execution["tool_name"] = response["steps"][-1].get("tool")
@@ -460,11 +475,13 @@ async def _handle_chat(request: ChatRequest) -> dict[str, Any]:
         _pending.pop(request.conversation_id, None)
         tool, arguments = pending["tool"], pending["arguments"]
     else:
-        tool = _choose_tool(request.message, tools)
+        tool = _tool_by_name(tools, "list_registered_agents") if list_all_agents else _choose_tool(request.message, tools)
         if not tool:
+            if list_all_agents:
+                return {"reply": "The MCP gateway does not currently expose the registered-agent list.", "steps": []}
             suggestions = [_display_name(item["name"]) for item in tools[:4]]
             return {"reply": "I could not match that to an available MCP capability. Try asking about " + ", ".join(suggestions) + ".", "steps": []}
-        arguments = _extract_arguments(request.message, tool)
+        arguments = {} if list_all_agents else _extract_arguments(request.message, tool)
         missing = _missing(tool, arguments)
         if missing:
             _pending[request.conversation_id] = {"tool": tool, "arguments": arguments, "missing": missing}
@@ -569,7 +586,7 @@ async def get_agent_inbox(agent_id: str) -> dict[str, Any]:
 @app.get("/api/agents")
 async def list_agents_api() -> dict[str, Any]:
     try:
-        result = await gateway.call("find_agent", {"agent_id": "all"})
+        result = await gateway.call("list_registered_agents", {})
         return result if isinstance(result, dict) else {"agents": result}
     except Exception as exc:
         return {"error": str(exc), "agents": []}

@@ -112,7 +112,7 @@ export function classifyTaskRun(run: TaskRunLike | null): 'robot' | 'discovery' 
   const tool = run?.steps.find((step) => step.tool)?.tool?.toLowerCase() || '';
   const text = `${tool} ${run?.command || ''}`.toLowerCase();
   if (/assign_task|dispatch_robot|robot task/.test(text)) return 'robot';
-  if (/find_agent|find_robot|list_agents|registry|discover/.test(text)) return 'discovery';
+  if (/find_agent|find_robot|list_agents|list_registered_agents|registry|discover|registered agents/.test(text)) return 'discovery';
   if (/authenticate|attach_ue|authentication|authenticat/.test(text)) return 'authentication';
   if (/request_ue_service|service_request|qos/.test(text)) return 'service';
   if (/send_ue_message|broadcast_ue_message|peer.message|broadcast/.test(text)) return 'message';

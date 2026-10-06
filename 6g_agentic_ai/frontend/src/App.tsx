@@ -561,7 +561,7 @@ export function App() {
       {/* Top Industrial Header */}
       <Header
         gatewayStatus={backendConnected === null ? 'checking' : backendConnected ? 'connected' : 'offline'}
-        modeLabel={showFactorySimulation ? 'LOCAL SIMULATION' : currentPage === 'network' ? 'SAMPLE TOPOLOGY' : currentPage === 'mcp' ? 'LOCAL RUN SIMULATION' : currentPage === 'logs' ? 'SESSION EVENTS' : undefined}
+        modeLabel={showFactorySimulation ? 'LOCAL SIMULATION' : currentPage === 'network' ? 'PROJECT TOPOLOGY' : currentPage === 'mcp' ? 'LOCAL RUN SIMULATION' : currentPage === 'logs' ? 'SESSION EVENTS' : undefined}
         onStartDemo={runDemoScenario}
         onSimulateFailure={handleSimulateFailure}
         onReset={handleReset}
@@ -602,7 +602,7 @@ export function App() {
           />
         )}
 
-        {currentPage === 'network' && <AgentNetworkPage robots={robots} />}
+        {currentPage === 'network' && <AgentNetworkPage />}
 
         {currentPage === 'mcp' && (
           <MCPControlPage

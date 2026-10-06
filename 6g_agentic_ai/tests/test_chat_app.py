@@ -50,6 +50,49 @@ async def test_chat_keeps_mcp_failure_distinct_from_llm(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_chat_lists_all_registered_agents_without_llm_selection(monkeypatch):
+    card = {"id": "ue_agent_001", "name": "UE Agent 001", "skills": [{"id": "attach"}]}
+
+    async def tools():
+        return [{"name": "list_registered_agents", "inputSchema": {"type": "object", "properties": {}}}]
+
+    async def call(name, arguments):
+        assert name == "list_registered_agents"
+        assert arguments == {}
+        return {"success": True, "agents": [card], "count": 1}
+
+    async def llm_must_not_run(*_args):
+        raise AssertionError("Agent listing should use the deterministic list tool")
+
+    monkeypatch.setattr(chat_app.gateway, "tools", tools)
+    monkeypatch.setattr(chat_app.gateway, "call", call)
+    monkeypatch.setattr(chat_app, "_handle_llm_chat", llm_must_not_run)
+    monkeypatch.setattr(chat_app, "LLM_ENABLED", True)
+
+    response = await chat_app._handle_chat(chat_app.ChatRequest(
+        conversation_id="list-all-agents-test",
+        message="Show all registered agents",
+    ))
+
+    assert response["steps"][0]["tool"] == "list_registered_agents"
+    assert response["steps"][0]["output"]["agents"] == [card]
+
+
+@pytest.mark.asyncio
+async def test_agents_api_uses_list_registered_agents_tool(monkeypatch):
+    result = {"success": True, "agents": [{"id": "ausf-agent", "name": "AUSF Agent"}], "count": 1}
+
+    async def call(name, arguments):
+        assert name == "list_registered_agents"
+        assert arguments == {}
+        return result
+
+    monkeypatch.setattr(chat_app.gateway, "call", call)
+
+    assert await chat_app.list_agents_api() == result
+
+
+@pytest.mark.asyncio
 async def test_task_list_returns_latest_persisted_status():
     previous_db = database.db
     database.db = database.InMemoryDatabase()

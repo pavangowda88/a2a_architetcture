@@ -42,6 +42,7 @@ from mcp_server import (
     diagnose_network_issue,
     assign_task as assign_task_tool,
     list_agents_by_skill,
+    list_registered_agents,
     end_task_session,
     end_all_task_sessions,
 )
@@ -202,6 +203,33 @@ async def test_assign_task_auto_selection_requires_matching_skill():
             result = await assign_task_tool(task="Crush package A11", payload_kg=1)
         assert result["success"] is True
         assert result["agent_id"] == "crusher"
+    finally:
+        database.db = previous_db
+
+
+@pytest.mark.asyncio
+async def test_assign_task_starts_local_robot_before_dispatch():
+    previous_db = database.db
+    database.db = database.InMemoryDatabase()
+    card = {
+        "id": "robot_pack_001",
+        "url": "http://localhost:8007",
+        "skills": [{"id": "packaging", "endpoint": "/task"}],
+        "metadata": {"agent_type": "packaging_arm", "max_payload_kg": 20},
+    }
+    try:
+        with patch.object(_client, "find_agent_by_id", new_callable=AsyncMock, return_value=card), \
+             patch.object(mcp_server, "_provision_robot_endpoint", new_callable=AsyncMock, return_value={"status": "started"}) as provision, \
+             patch.object(_client, "send_raw", new_callable=AsyncMock, return_value={"result": {"accepted": True}}) as send:
+            result = await assign_task_tool(
+                agent_id="robot_pack_001",
+                skill="packaging",
+                task="Pack the finished order",
+            )
+
+        assert result["success"] is True
+        provision.assert_awaited_once_with(card)
+        send.assert_awaited_once()
     finally:
         database.db = previous_db
 
@@ -465,6 +493,33 @@ class TestMockedSuccess:
             result = await find_agent(agent_id="ue_agent_001")
             assert result["success"] is True
             assert result["agent"]["name"] == "UE Agent 001"
+
+    @pytest.mark.asyncio
+    async def test_list_registered_agents_returns_sanitized_cards(self):
+        cards = [
+            {
+                "_id": "mongo-id",
+                "id": "ue_agent_001",
+                "name": "UE Agent 001",
+                "url": "http://localhost:8004",
+                "description": "UE endpoint",
+                "skills": [{"id": "attach", "name": "Attach"}],
+                "securitySchemes": {"bearerAuth": {"type": "http"}},
+                "security": [{"bearerAuth": []}],
+            },
+            {"id": "ausf-agent", "name": "AUSF Agent", "url": "http://localhost:8001", "skills": []},
+        ]
+        with patch.object(_client, "list_agents", new_callable=AsyncMock, return_value=cards), \
+             patch.object(mcp_server, "_record_session", new_callable=AsyncMock, return_value={"status": "active"}):
+            result = await list_registered_agents()
+
+        assert result["success"] is True
+        assert result["count"] == 2
+        assert [agent["name"] for agent in result["agents"]] == ["UE Agent 001", "AUSF Agent"]
+        assert result["agents"][0]["skills"] == [{"id": "attach", "name": "Attach"}]
+        assert "_id" not in result["agents"][0]
+        assert "securitySchemes" not in result["agents"][0]
+        assert "security" not in result["agents"][0]
 
     @pytest.mark.asyncio
     async def test_find_agent_by_skill_success(self):

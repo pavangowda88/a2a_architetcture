@@ -12,6 +12,7 @@ Run:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -50,15 +51,35 @@ if not any(isinstance(handler, logging.FileHandler) for handler in oauth_logger.
 _robot_processes: dict[str, subprocess.Popen] = {}
 
 
+async def _wait_for_robot_endpoint(card: dict, timeout: float = 10.0) -> bool:
+    base_url = str(card.get("url", "")).rstrip("/")
+    expected_agent_id = card.get("id")
+    deadline = asyncio.get_running_loop().time() + timeout
+    async with httpx.AsyncClient(timeout=0.5) as client:
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                response = await client.get(f"{base_url}/health")
+                if response.is_success:
+                    health = response.json()
+                    if isinstance(health, dict) and health.get("status") == "ok" and health.get("agent_id") == expected_agent_id:
+                        return True
+            except (httpx.HTTPError, ValueError):
+                pass
+            await asyncio.sleep(0.2)
+    return False
+
+
 async def _provision_robot_endpoint(card: dict) -> dict:
-    """Start the generic task service for a new local robot when its port is free."""
-    parsed = urlparse(card["url"])
+    """Start a local robot endpoint when needed and wait until its health check passes."""
+    parsed = urlparse(str(card.get("url", "")))
     if parsed.hostname not in {"localhost", "127.0.0.1"} or not parsed.port:
         return {"status": "external", "message": "Robot endpoint must be started by its owner"}
     port = parsed.port
     try:
         with socket.create_connection((parsed.hostname, port), timeout=0.2):
-            return {"status": "occupied", "message": f"Port {port} is already in use"}
+            if await _wait_for_robot_endpoint(card):
+                return {"status": "occupied", "message": f"Robot endpoint is healthy on port {port}"}
+            return {"status": "unhealthy", "message": f"Port {port} is in use but does not serve agent '{card.get('id')}'"}
     except OSError:
         pass
 
@@ -68,12 +89,21 @@ async def _provision_robot_endpoint(card: dict) -> dict:
         env={
             **os.environ,
             "ROBOT_AGENT_ID": card["id"],
-            "ROBOT_SKILLS": ",".join(skill["id"] for skill in card["skills"]),
+            "ROBOT_SKILLS": ",".join(
+                skill.get("id", "") if isinstance(skill, dict) else str(skill)
+                for skill in card.get("skills", [])
+            ),
             "ROBOT_MAX_PAYLOAD_KG": str((card.get("metadata") or {}).get("max_payload_kg", 0)),
         },
     )
     _robot_processes[card["id"]] = process
-    return {"status": "started", "pid": process.pid}
+    if await _wait_for_robot_endpoint(card):
+        return {"status": "started", "pid": process.pid, "message": "Robot endpoint is healthy"}
+
+    if process.poll() is None:
+        process.terminate()
+    _robot_processes.pop(card["id"], None)
+    return {"status": "failed", "message": f"Robot endpoint on port {port} did not become healthy"}
 
 
 class KeycloakTokenVerifier(TokenVerifier):
@@ -532,6 +562,11 @@ async def assign_task(
         upsert=True,
     )
     try:
+        parsed_endpoint = urlparse(base_url)
+        if parsed_endpoint.hostname in {"localhost", "127.0.0.1"}:
+            endpoint_status = await _provision_robot_endpoint(card)
+            if endpoint_status.get("status") not in {"started", "occupied"}:
+                raise RuntimeError(endpoint_status.get("message", "Robot endpoint is unavailable"))
         result = await _client.send_raw(f"{base_url}/{endpoint.lstrip('/')}", request)
     except Exception as exc:
         await database.db.tasks.update_one(
@@ -908,6 +943,30 @@ async def find_agent(agent_id: str) -> dict:
         if exc.response.status_code == 404:
             return _error(f"Agent '{agent_id}' not found", "registry")
         return _error(f"Registry returned HTTP {exc.response.status_code}", "registry")
+    except Exception as exc:
+        return _error(str(exc), "registry")
+
+
+@mcp.tool(
+    name="list_registered_agents",
+    description="List all registered agent cards from the Registry, including each agent's skills and endpoint.",
+)
+async def list_registered_agents() -> dict:
+    """Return all sanitized agent cards from the Registry."""
+    try:
+        cards = await _client.list_agents()
+        agents = [_sanitize_card(dict(card)) for card in cards if isinstance(card, dict)]
+        session = await _record_session(
+            "registry",
+            "list_registered_agents",
+            {"agent_count": len(agents)},
+        )
+        return {
+            "success": True,
+            "agents": agents,
+            "count": len(agents),
+            "session": _sanitize_session(session),
+        }
     except Exception as exc:
         return _error(str(exc), "registry")
 

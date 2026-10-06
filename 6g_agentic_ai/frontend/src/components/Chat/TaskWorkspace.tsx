@@ -305,16 +305,41 @@ function TaskDiagram({ run, kind, stations }: { run: TaskRun; kind: TaskKind; st
   }
 
   if (kind === 'discovery') {
+    const discoveryError = findValue(outputs, ['error']);
     return (
       <>
-        <div className="task-visual-title"><Network size={17} /><div><strong>Registry results</strong><span>{skill ? `Skill query: ${String(skill)}` : 'Matching agents returned by MCP'}</span></div></div>
+        <div className="task-visual-title"><Network size={17} /><div><strong>Registered Agent Cards</strong><span>{skill ? `Skill query: ${String(skill)}` : `${cards.length} agents returned by the Registry`}</span></div></div>
         {cards.length ? <div className="agent-result-list">{cards.map((agent, index) => {
           const id = findValue(agent, ['id', 'agent_id']);
           const name = findValue(agent, ['name', 'agent_name']);
           const endpoint = findValue(agent, ['url', 'endpoint']);
+          const description = findValue(agent, ['description']);
+          const version = findValue(agent, ['version']);
           const skills = findValue(agent, ['skills']);
-          return <article className="agent-result" key={String(id || index)}><div className="agent-result-icon"><Bot size={16} /></div><div><strong>{String(name || id || `Agent ${index + 1}`)}</strong><span>{id && name ? String(id) : 'Agent identity'}</span><small>{endpoint ? String(endpoint) : 'Endpoint not returned'}</small>{skills !== undefined && <small>Skills: {Array.isArray(skills) ? skills.map((entry) => typeof entry === 'object' && entry ? String((entry as Record<string, unknown>).id || '') : String(entry)).filter(Boolean).join(', ') : String(skills)}</small>}</div></article>;
-        })}</div> : <p className="task-empty-note">{findValue(outputs, ['count']) === 0 ? 'No matching agents were returned.' : 'The response did not include agent cards.'}</p>}
+          const skillEntries = Array.isArray(skills) ? skills : [];
+          return (
+            <article className="agent-result" key={String(id || index)}>
+              <div className="agent-result-icon"><Bot size={17} /></div>
+              <div className="agent-result-content">
+                <div className="agent-result-header">
+                  <div><strong>{String(name || id || `Agent ${index + 1}`)}</strong><span className="agent-result-id">{String(id || 'Agent identity')}</span></div>
+                  {version !== undefined && <span className="agent-result-version">v{String(version)}</span>}
+                </div>
+                {description !== undefined && <p className="agent-result-description">{String(description)}</p>}
+                <div className="agent-result-endpoint"><span>ENDPOINT</span><code>{endpoint ? String(endpoint) : 'Not returned'}</code></div>
+                {skillEntries.length > 0 && <div className="agent-result-skills" aria-label="Advertised skills">{skillEntries.map((entry, skillIndex) => {
+                  const skillRecord = entry && typeof entry === 'object' ? entry as Record<string, unknown> : undefined;
+                  const skillId = skillRecord?.id;
+                  const skillName = skillRecord?.name;
+                  const skillLabel = skillName && skillId && skillName !== skillId
+                    ? `${String(skillName)} · ${String(skillId)}`
+                    : String(skillName || skillId || entry);
+                  return <span key={`${skillLabel}-${skillIndex}`}>{skillLabel}</span>;
+                })}</div>}
+              </div>
+            </article>
+          );
+        })}</div> : <p className="task-empty-note">{discoveryError ? `Registry lookup failed: ${String(discoveryError)}` : findValue(outputs, ['count']) === 0 ? 'No registered agents were returned.' : 'The response did not include agent cards.'}</p>}
       </>
     );
   }

@@ -25,6 +25,13 @@ describe('task visualization mapping', () => {
     expect(classifyTaskRun(makeRun({ command: 'Authenticate subscriber', steps: [{ tool: 'authenticate_agent' }] }))).toBe('authentication');
   });
 
+  it('classifies requests to show every registered agent as discovery', () => {
+    expect(classifyTaskRun(makeRun({
+      command: 'Show all registered agents',
+      steps: [{ tool: 'list_registered_agents' }],
+    }))).toBe('discovery');
+  });
+
   it('uses backend locations and resolves factory station identifiers', () => {
     const assigned = makeRun({
       steps: [{ tool: 'assign_task', input: { locations: { source: 'assembly', destination: 'inspection' } } }],
